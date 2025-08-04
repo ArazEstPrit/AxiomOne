@@ -1,0 +1,34 @@
+{
+	"compilerOptions": {
+		/* Language and Environment */
+		"target": "esnext",
+		"lib": ["ESNext"],
+		"experimentalDecorators": true,
+		"emitDecoratorMetadata": true,
+
+		/* Modules */
+		"module": "nodenext",
+		"allowImportingTsExtensions": true,
+
+		/* Emit */
+		"noEmit": true,
+
+		/* Interop Constraints */
+		"erasableSyntaxOnly": true,
+		"allowSyntheticDefaultImports": true,
+		"forceConsistentCasingInFileNames": true,
+
+		/* Type Checking */
+		"strict": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"exactOptionalPropertyTypes": true,
+		"noImplicitReturns": true,
+		"noFallthroughCasesInSwitch": false,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"allowUnusedLabels": false,
+		"allowUnreachableCode": false
+	},
+	"include": ["src", "test"]
+}

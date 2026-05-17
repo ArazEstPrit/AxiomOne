@@ -17,6 +17,7 @@ import type {
 	EventKey,
 	EventListener,
 	EventListenerOptions,
+	EventMap,
 	EventMetrics,
 	EventName,
 	EventPayload,
@@ -25,7 +26,6 @@ import type {
 	EventWithPayload,
 	EventWithoutPayload,
 	ListenerMetrics,
-	PossibleKeys,
 	ResolveWildcard,
 	StaticEventEmission,
 } from "./types.ts";
@@ -284,9 +284,13 @@ export async function emit<T extends EventName>(
 			e => e.name === eventName && originatesFromSameListener(e),
 		).length >= RECURSION_LIMIT
 	) {
-		const err = new EventEmissionRecursionError(eventName);
-		event.errors.push(err);
-		// console.log("max recursion reached", ++i);
+		const error = new EventEmissionRecursionError(
+			parentListenerId!,
+			eventStack.at(-1)!.id,
+			eventName,
+		);
+		event.errors.push(error);
+		emitSync("event-bus:listener-error", error);
 
 		return;
 	}
@@ -312,11 +316,8 @@ export async function emit<T extends EventName>(
 				(payload as EventPayload<ResolveWildcard<"event-bus:*">>).id
 		);
 
-	// TODO
-	// const keys = getKeysFor(eventName);
 	const listeners = listenerMap
 		.values()
-		// .filter(l => keys.includes(l.key as PossibleKeys<T>))
 		.filter(l => resolveWildcard(l.key).includes(eventName))
 		.toArray()
 		.sort(
@@ -366,8 +367,13 @@ export function emitSync<T extends EventName>(
 	payload?: EventPayload<T>,
 ) {
 	// A little convoluted to make Typescript happy
-	if (payload) emit(eventName as EventWithPayload, payload, { sync: true });
-	else emit(eventName as EventWithoutPayload, null, { sync: true });
+	if (payload) emit(eventName, payload, { sync: true });
+	else
+		emit(
+			eventName as EventWithoutPayload,
+			null as EventMap[EventWithoutPayload],
+			{ sync: true },
+		);
 }
 
 export function eventNames(): EventName[] {

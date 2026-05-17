@@ -1,6 +1,6 @@
 import type { EventName } from "./types.ts";
 
-export class EventBusError extends Error { }
+export class EventBusError extends Error {}
 
 export class EventListenerError extends EventBusError {
 	public id: string;
@@ -13,10 +13,6 @@ export class EventListenerError extends EventBusError {
 		this.emissionId = emissionId;
 		this.cause = cause;
 	}
-
-	[Symbol.for("nodejs.util.inspect.custom")]() {
-		return "EventListenerError: " + this.message;
-	}
 }
 
 export class EventListenerTimeoutError extends EventListenerError {
@@ -25,11 +21,14 @@ export class EventListenerTimeoutError extends EventListenerError {
 	}
 }
 
-export class EventEmissionRecursionError extends EventBusError {
+export class EventEmissionRecursionError extends EventListenerError {
 	public eventName: EventName;
-	constructor(eventName: EventName) {
-		super();
-		this.message = `Event "${eventName}" has hit the recursion limit.`;
+	constructor(listenerId: string, emissionId: string, eventName: EventName) {
+		super(
+			listenerId,
+			emissionId,
+			`Event "${eventName}" has hit the recursion limit.`,
+		);
 		this.eventName = eventName;
 	}
 }

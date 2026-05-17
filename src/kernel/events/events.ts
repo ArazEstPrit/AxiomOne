@@ -26,6 +26,7 @@ import type {
 	EventWithPayload,
 	EventWithoutPayload,
 	ListenerMetrics,
+	PossibleKeys,
 	ResolveWildcard,
 	StaticEventEmission,
 } from "./types.ts";

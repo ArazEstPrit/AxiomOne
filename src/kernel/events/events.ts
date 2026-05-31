@@ -440,7 +440,7 @@ export function getEventMetrics<T extends EventName>(name: T): EventMetrics<T> {
 	return {
 		name,
 		totalEmissions: event.emissionCount,
-		activeListeners: listeners.length,
+		activeListeners: listeners(name).length,
 		listeners: listeners(name, { inactive: true }),
 		lastActivity: event.history.at(-1)?.timestamp || null,
 		history: event.history,

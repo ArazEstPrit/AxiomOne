@@ -29,12 +29,10 @@ export type EventName = keyof EventMap;
 
 export type EventPayload<T extends EventName = EventName> = EventMap[T];
 
-/** Events that have payloads */
 export type EventWithPayload = {
 	[K in EventName]: EventPayload<K> extends null ? never : K;
 }[EventName];
 
-/** Events that have no payloads */
 export type EventWithoutPayload = Exclude<EventName, EventWithPayload>;
 
 /** Checks if a string has a namespace divider */
@@ -85,14 +83,13 @@ interface ListenerEmissionOrigin extends BaseEmissionOrigin {
 
 export type EmissionOrigin = DirectEmissionOrigin | ListenerEmissionOrigin;
 
-interface BaseStaticEventEmission<T extends EventName> {
+export interface BaseStaticEventEmission<T extends EventName> {
 	payload: EventPayload<T>;
 	name: T;
 	timestamp: number;
 	id: string;
 	depth: number;
 	parentId: string | null;
-	runListeners: EventListener[];
 	origin: EmissionOrigin;
 }
 
@@ -104,15 +101,9 @@ interface BaseEventEmission<
 	get parent(): EventEmission | null;
 }
 
-interface BaseEvent<T extends EventName = EventName> {
-	history: StaticEventEmission<T>[];
-	errors: EventBusError[];
-	emissionCount: number;
-}
-
 export type EventHandler<T extends EventKey> = (
 	event: EventEmission<ResolveWildcard<T>>,
-) => void | Promise<void>;
+) => void | Promise<void> | unknown | Promise<unknown>;
 
 type ErrorHandler<T extends EventKey> = (
 	err: EventListenerError,
@@ -124,7 +115,7 @@ type EventFilter<T extends EventKey> = (
 	event: EventEmission<ResolveWildcard<T>>,
 ) => boolean;
 
-export interface EventListenerOptions<T extends EventKey> {
+export interface EventListenerOptions<T extends EventKey = EventKey> {
 	once?: boolean | undefined;
 	sticky?: boolean | undefined;
 	priority?: number | undefined;
@@ -137,9 +128,6 @@ export interface BaseEventListener<T extends EventKey = EventKey> {
 	handler: EventHandler<T>;
 	options: EventListenerOptions<T>;
 	id: string;
-	errors: EventListenerError[];
-	lastActivity: number | null;
-	runCount: number;
 	source: string;
 }
 
@@ -168,19 +156,11 @@ export type EventListener<T extends EventKey = EventKey> = {
 	[K in EventKey]: BaseEventListener<K>;
 }[T];
 
-export type Event<T extends EventName = EventName> = {
-	[K in EventName]: BaseEvent<K>;
-}[T];
-
 export interface EventBusMetrics {
-	/** Total emissions across all events */
-	totalEmissions: number;
+	emissionCount: number;
 
 	/** Currently active listeners across all events */
-	activeListeners: number;
-
-	/** Last emissions. For each event, only the last 20 are given. */
-	history: StaticEventEmission[];
+	listenerCount: number;
 
 	/** All errors */
 	errors: EventBusError[];
@@ -192,35 +172,22 @@ export interface EventBusMetrics {
 
 	/** Per-listener stats */
 	listeners: Record<string, ListenerMetrics>;
-
-	/** Inactive listener stats */
-	inactiveListeners: Record<string, ListenerMetrics>;
 }
 
 export interface EventMetrics<T extends EventName = EventName> {
 	/** Event name */
 	name: T;
 
-	/** Total emissions of this event */
-	totalEmissions: number;
+	emissionCount: number;
 
 	/** Active listeners for this event */
-	activeListeners: number;
-
-	/** Timestamp of when this event last fired */
-	lastActivity: number | null;
+	listenerCount: number;
 
 	/**
 	 * Listener for this event. Some listeners may appear under multiple
 	 * events due to their use of wildcards.
 	 */
-	listeners: EventListener<T>[];
-
-	/** Last 20 emissions. */
-	history: BaseStaticEventEmission<T>[];
-
-	/** All errors related to this event */
-	errors: (EventListenerError | EventBusError)[];
+	listeners: EventListener<PossibleKeys<T>>[];
 }
 
 export interface ListenerMetrics<T extends EventKey = EventKey> {
@@ -230,20 +197,16 @@ export interface ListenerMetrics<T extends EventKey = EventKey> {
 	/** Listener event key */
 	key: T;
 
+	runCount: number;
+
 	/** Listener options */
 	options: EventListenerOptions<T>;
-
-	/** How many times this listener ran */
-	runCount: number;
 
 	/** Listener source */
 	source: string;
 
 	/** Errors thrown by this listener */
 	errors: EventListenerError[];
-
-	/** Timestamp of when this listener last ran */
-	lastActivity: number | null;
 }
 
 export interface EventBusBuilder<T extends EventKey = EventKey> {

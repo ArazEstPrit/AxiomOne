@@ -7,9 +7,7 @@ import {
 	EventListenerTimeoutError,
 } from "./errors.ts";
 import type {
-	BaseEventListener,
 	EmissionOrigin,
-	Event,
 	EventBusBuilder,
 	EventBusMetrics,
 	EventEmission,
@@ -17,7 +15,6 @@ import type {
 	EventKey,
 	EventListener,
 	EventListenerOptions,
-	EventMap,
 	EventMetrics,
 	EventName,
 	EventPayload,
@@ -30,6 +27,7 @@ import type {
 	ResolveWildcard,
 	StaticEventEmission,
 } from "./types.ts";
+import { arrMax, mapIncrement, mapPush, runWithTimeout } from "#utils";
 
 // meta event listeners don't get run for emissions regarding themselves, i.e. a
 // "event-bus:new-listener" listener will not run for its own "new-listener"
@@ -37,49 +35,33 @@ import type {
 
 // meta event listeners are not awaited.
 
+// Sticky listeners with filters don't run instantly if the last emission is
+// filtered out. It might have been better design-wise if the sticky listener
+// was run with the last emission which passes the filter, however, that
+// requires storing all previous emissions, which takes up too much space.
+
 export const RECURSION_LIMIT = 2;
-export const LISTENER_TIMEOUT = 500;
-export const HISTORY_LIMIT = 20;
+export const LISTENER_TIMEOUT = 5000;
 
 const listenerMap = new Map<string, EventListener>();
-const inactiveListenerMap = new Map<string, EventListener>();
-// TODO rethink emission storage
-const eventMap = new Map<EventName, Event>();
-
-const wildcardIndex = new Map<EventWildcard, Set<EventName>>();
+const wildcardIndex = new Map<EventWildcard, Set<EventName>>([
+	// This entry effectively functions as a set of all known events, which is
+	// why it should be added manually on initialisation.
+	["*", new Set()],
+]);
 
 const parentStorage = new AsyncLocalStorage<{
 	eventStack: EventEmission[];
 	runListenerId: string;
 }>();
+// Though mapping events to their parent emissions alone, and recursively
+// building the stack would be more space efficient, it would not work if the
+// same event is present multiple times in a single stack, and would result in
+// an infinite loop. (TODO: find a better way)
+const lastEmissionStackMap = new Map<EventName, EventEmission[]>();
 
-function deStatifyEmission(
-	staticEmission: StaticEventEmission,
-	stopPropagation: EventEmission["stopPropagation"] = () => {},
-): EventEmission {
-	return {
-		...staticEmission,
-		stopPropagation,
-		get parent() {
-			return staticEmission.parentId
-				? deStatifyEmission(getEmission(staticEmission.parentId)!)
-				: null;
-		},
-	};
-}
-
-function getEvent<T extends EventName>(eventName: T): Event<T> {
-	if (!eventMap.has(eventName)) {
-		eventMap.set(eventName, { errors: [], history: [], emissionCount: 0 });
-		updateWildcardIndex(eventName);
-	}
-
-	return eventMap.get(eventName)! as Event<T>;
-}
-
-export function getEmission(id: string): StaticEventEmission | undefined {
-	return getHistory().find(e => e.id == id);
-}
+const listenerErrorMap = new Map<string, EventListenerError[]>();
+const counterMap = new Map<string, number>();
 
 export function listen<T extends EventKey>(
 	eventKey: T,
@@ -100,26 +82,21 @@ export function listen(
 		handler,
 		id,
 		options,
-		errors: [],
-		lastActivity: null,
-		runCount: 0,
 		source: getSource(),
 	};
 
 	listenerMap.set(id, listener);
 
-	if (!isWildcard(eventKey))
-		getEvent(eventKey); // Make sure that this event exists in the eventMap
-	else resolveWildcard(eventKey);
+	updateWildcardIndex(eventKey);
 
 	if (options.sticky) {
-		const lastStaticEmission = getLastEmission(eventKey);
-		if (lastStaticEmission)
+		const lastEmission = getLast(eventKey);
+		if (lastEmission)
 			// Sticky listeners are not awaited
-			runListener(listener, deStatifyEmission(lastStaticEmission), true);
+			runListener(listener, lastEmission, true);
 	}
 
-	emitSync("event-bus:new-listener", listener);
+	emit("event-bus:new-listener", listener);
 
 	return {
 		id,
@@ -150,9 +127,11 @@ export function waitFor<T extends EventKey>(
 	options?: Pick<EventListenerOptions<T>, "sticky" | "filter"> & {
 		timeout?: number;
 	},
-): Promise<StaticEventEmission<ResolveWildcard<T>>> {
+): Promise<EventEmission<ResolveWildcard<T>>> {
 	return new Promise((res, rej) => {
 		if (options?.timeout)
+			// TODO: This timeout error is different than the
+			// EventListenerTimeoutError, so a new error class should be made.
 			setTimeout(() => rej(new Error("Timeout")), options?.timeout);
 
 		listen(eventKey, res, {
@@ -163,6 +142,19 @@ export function waitFor<T extends EventKey>(
 	});
 }
 
+export function getLast<T extends EventKey>(
+	eventKey: T,
+): EventEmission<ResolveWildcard<T>> | null {
+	return (
+		(arrMax(
+			resolveWildcard(eventKey)
+				.map(e => lastEmissionStackMap.get(e))
+				.filter(e => e !== undefined),
+			e => e.at(-1)!.timestamp,
+		)?.at(-1) as EventEmission<ResolveWildcard<T>>) || null
+	);
+}
+
 export function once<T extends EventKey>(
 	eventKey: T,
 	handler: EventHandler<T>,
@@ -171,40 +163,45 @@ export function once<T extends EventKey>(
 	return listen(eventKey, handler, { once: true, ...options });
 }
 
-export function listeners<T extends EventKey>(
+export function getListener(id: string): EventListener | null {
+	return listenerMap.get(id) || null;
+}
+
+export function getListeners<T extends EventKey>(
 	eventKey: T,
 	options?: {
 		resolveWildcard?: false;
-		inactive?: boolean;
 	},
 ): EventListener<T>[];
-export function listeners<T extends EventKey>(
-	eventKey: EventKey,
+export function getListeners<T extends EventName>(
+	eventKey: T,
 	options?: {
 		resolveWildcard?: true;
-		inactive?: boolean;
+	},
+): EventListener<PossibleKeys<T>>[];
+export function getListeners<T extends EventWildcard>(
+	eventKey: T,
+	options?: {
+		resolveWildcard?: true;
 	},
 ): EventListener<ResolveWildcard<T>>[];
-export function listeners(
+export function getListeners(
 	eventKey: EventKey,
 	options?: {
 		/** whether the inputted key and the listeners' keys should be resolved */
 		resolveWildcard?: boolean;
-		inactive?: boolean;
 	},
 ): EventListener[] {
+	updateWildcardIndex(eventKey);
 	return listenerMap
 		.values()
-		.toArray()
-		.concat(options?.inactive ? inactiveListenerMap.values().toArray() : [])
 		.filter(e =>
 			options?.resolveWildcard
-				? (
-						resolveWildcard(eventKey as EventWildcard) as EventKey[]
-					).includes(e.key) ||
+				? resolveWildcard(eventKey).includes(e.key as EventName) ||
 					resolveWildcard(e.key).includes(eventKey as EventName)
 				: eventKey === e.key,
-		);
+		)
+		.toArray();
 }
 
 export function removeListener<T extends EventKey>(
@@ -216,17 +213,16 @@ export function removeListener<T extends EventKey>(
 	keyOrId: T | string,
 	handler?: EventHandler<T>,
 ): void {
-	const listener = listenerMap.has(keyOrId)
-		? listenerMap.get(keyOrId)
-		: listenerMap
-				.values()
-				.find(e => e.key === keyOrId && e.handler === handler);
+	const listener =
+		listenerMap.get(keyOrId) ||
+		listenerMap
+			.values()
+			.find(e => e.key === keyOrId && e.handler === handler);
 
 	if (!listener) return;
 
-	emitSync("event-bus:remove-listener", listener);
+	emit("event-bus:remove-listener", listener);
 
-	inactiveListenerMap.set(listener.id, listener);
 	listenerMap.delete(listener.id);
 }
 
@@ -238,6 +234,7 @@ export function removeAllListeners(
 		resolveWildcard: boolean;
 	},
 ): void {
+	updateWildcardIndex(eventKey);
 	const eventNames: EventName[] =
 		isWildcard(eventKey) && options?.resolveWildcard
 			? resolveWildcard(eventKey)
@@ -247,30 +244,26 @@ export function removeAllListeners(
 		listenerMap
 			.values()
 			.filter(e => e.key === key)
-			.forEach(l => listenerMap.delete(l.id)),
+			.forEach(l => removeListener(l.id)),
 	);
 }
 
-export function emit<T extends EventWithPayload>(
+export async function emit<T extends EventWithPayload>(
 	eventName: T,
 	payload: EventPayload<T>,
-	options?: { sync: boolean },
 ): Promise<void>;
-export function emit<T extends EventWithoutPayload>(
+export async function emit<T extends EventWithoutPayload>(
 	eventName: T,
-	payload?: EventPayload<T>,
-	options?: { sync: boolean },
+	payload?: null,
 ): Promise<void>;
 export async function emit<T extends EventName>(
 	eventName: T,
 	payload?: EventPayload<T>,
-	options?: { sync: boolean },
-) {
-	const event = getEvent(eventName);
+): Promise<void> {
+	updateWildcardIndex(eventName);
 
 	const eventStack = parentStorage.getStore()?.eventStack || [];
 	const parentListenerId = parentStorage.getStore()?.runListenerId;
-
 	const origin: EmissionOrigin = parentListenerId
 		? { type: "listener", listenerId: parentListenerId }
 		: { source: getSource(), type: "direct" };
@@ -285,18 +278,18 @@ export async function emit<T extends EventName>(
 			e => e.name === eventName && originatesFromSameListener(e),
 		).length >= RECURSION_LIMIT
 	) {
-		const error = new EventEmissionRecursionError(
-			parentListenerId!,
-			eventStack.at(-1)!.id,
-			eventName,
+		emit(
+			"event-bus:listener-error",
+			new EventEmissionRecursionError(
+				parentListenerId!,
+				eventStack.at(-1)!.id,
+				eventName,
+			),
 		);
-		event.errors.push(error);
-		emitSync("event-bus:listener-error", error);
 
-		return;
+		return Promise.resolve();
 	}
 
-	const runListeners = [] as EventListener[];
 	const id = randomUUID();
 	const hrtime = process.hrtime(); // TODO
 	const staticEmission = {
@@ -306,9 +299,10 @@ export async function emit<T extends EventName>(
 		id,
 		depth: eventStack.length,
 		parentId: eventStack.at(-1)?.id || null,
-		runListeners,
 		origin,
 	} as StaticEventEmission;
+
+	mapIncrement(counterMap, eventName);
 
 	const sameMetaEventId = (l: EventListener) =>
 		!(
@@ -326,149 +320,45 @@ export async function emit<T extends EventName>(
 		)
 		.filter(sameMetaEventId);
 
+	let stopped = false;
+	const emission = {
+		...staticEmission,
+		get parent() {
+			return eventStack.at(-1);
+		},
+		stopPropagation() {
+			stopped = true;
+		},
+	} as EventEmission;
+
 	for (const listener of listeners) {
-		let stopped = false;
-
-		runListeners.push(listener);
-
-		const emission = {
-			...staticEmission,
-			get parent() {
-				return eventStack.at(-1);
-			},
-			stopPropagation() {
-				stopped = true;
-			},
-		} as EventEmission;
-
 		const context = {
 			eventStack: [...eventStack, emission],
 			runListenerId: listener.id,
 		};
 
-		const fn = () => runListener(listener, emission, options?.sync);
-
-		if (options?.sync) parentStorage.run(context, fn);
-		else await parentStorage.run(context, fn);
+		await parentStorage.run(context, () => runListener(listener, emission));
 
 		if (stopped) break;
 	}
 
-	pushWithLimit(event.history, staticEmission);
-	event.emissionCount++;
+	lastEmissionStackMap.set(eventName, [...eventStack, emission]);
 }
 
-export function emitSync<T extends EventWithPayload>(
-	eventName: T,
-	payload: EventPayload<T>,
-): void;
-export function emitSync<T extends EventWithoutPayload>(eventName: T): void;
-export function emitSync<T extends EventName>(
-	eventName: T,
-	payload?: EventPayload<T>,
-) {
-	// A little convoluted to make Typescript happy
-	if (payload) emit(eventName, payload, { sync: true });
-	else
-		emit(
-			eventName as EventWithoutPayload,
-			null as EventMap[EventWithoutPayload],
-			{ sync: true },
-		);
-}
-
-export function eventNames(): EventName[] {
-	return eventMap.keys().toArray();
-}
-
-export function getHistory<T extends EventKey = EventKey>(
-	eventKey?: T,
-): StaticEventEmission<ResolveWildcard<T>>[] {
-	return resolveWildcard(eventKey || "*")
-		.map(e => getEvent(e).history)
-		.flat()
-		.sort((e1, e2) => e1.timestamp - e2.timestamp) as StaticEventEmission<
-		ResolveWildcard<T>
-	>[];
-}
-
-export function getLastEmission<T extends EventKey>(
-	eventKey: T,
-): StaticEventEmission<ResolveWildcard<T>> | null {
-	return getHistory(eventKey).at(-1) || null;
-}
-
-export function getMetrics(): EventBusMetrics {
-	return {
-		totalEmissions: eventMap
-			.values()
-			.reduce((acc, curr) => acc + curr.emissionCount, 0),
-		activeListeners: listenerMap.size,
-		errors: eventMap
-			.values()
-			.map(e => e.errors)
-			.toArray()
-			.flat(),
-		history: getHistory(),
-		events: eventMap.keys().reduce(
-			(acc, name) => {
-				(acc[name] as EventMetrics) = getEventMetrics(name);
-				return acc;
-			},
-			{} as EventBusMetrics["events"],
-		),
-		listeners: listenerMap.keys().reduce(
-			(acc, id) => {
-				acc[id] = getListenerMetrics(id);
-				return acc;
-			},
-			{} as EventBusMetrics["listeners"],
-		),
-		inactiveListeners: inactiveListenerMap.keys().reduce(
-			(acc, id) => {
-				acc[id] = getListenerMetrics(id);
-				return acc;
-			},
-			{} as EventBusMetrics["inactiveListeners"],
-		),
-	};
-}
-
-export function getEventMetrics<T extends EventName>(name: T): EventMetrics<T> {
-	const event = getEvent(name);
-
-	return {
-		name,
-		totalEmissions: event.emissionCount,
-		activeListeners: listeners(name).length,
-		listeners: listeners(name, { inactive: true }),
-		lastActivity: event.history.at(-1)?.timestamp || null,
-		history: event.history,
-		errors: event.errors,
-	};
-}
-
-export function getListenerMetrics(id: string): ListenerMetrics {
-	const listener = (listenerMap.get(id) ??
-		inactiveListenerMap.get(id)) as BaseEventListener;
-	return {
-		id,
-		key: listener.key,
-		options: listener.options,
-		runCount: listener.runCount,
-		source: listener.source,
-		errors: listener.errors,
-		lastActivity: listener.lastActivity,
-	};
+export function getEventNames(): EventName[] {
+	return wildcardIndex.get("*")!.values().toArray();
 }
 
 export function __resetState(): void {
 	if (!__test?.active) throw new Error("Not in a testing environment!");
 
 	listenerMap.clear();
-	inactiveListenerMap.clear();
-	eventMap.clear();
 	wildcardIndex.clear();
+	wildcardIndex.set("*", new Set());
+
+	counterMap.clear();
+	listenerErrorMap.clear();
+	lastEmissionStackMap.clear();
 }
 
 function isWildcard(key: EventKey): key is EventWildcard {
@@ -482,28 +372,82 @@ function resolveWildcard<T extends EventKey>(key: T): ResolveWildcard<T>[] {
 		wildcardIndex.set(
 			key,
 			new Set(
-				eventMap.keys().filter(n => n.startsWith(key.slice(0, -1))),
+				wildcardIndex
+					.get("*")!
+					.entries()
+					.map(e => e[0])
+					.filter(n => n.startsWith(key.slice(0, -1)))
+					.toArray(),
 			),
 		);
+
 	return Array.from(wildcardIndex.get(key)!) as ResolveWildcard<T>[];
 }
 
-function getKeysFor<T extends EventName>(eventName: T): PossibleKeys<T>[] {
-	return [
-		eventName,
-		...(wildcardIndex
-			.entries()
-			.filter(e => e[1].has(eventName))
-			.map(e => e[0])
-			.toArray() as PossibleKeys<T>[]),
-	];
+function updateWildcardIndex(name: EventKey): void {
+	// If the "*" set already contains the event name, that means the
+	// wildcardIndex has already been updated for that event.
+	if (!isWildcard(name) && !wildcardIndex.get("*")!.has(name))
+		wildcardIndex.keys().forEach(key => {
+			if (name.startsWith(key.slice(0, -1)))
+				wildcardIndex.get(key)!.add(name);
+		});
 }
 
-function updateWildcardIndex(name: EventName): void {
-	wildcardIndex.keys().forEach(key => {
-		if (name.startsWith(key.slice(0, -1)))
-			wildcardIndex.get(key)!.add(name);
-	});
+export function getMetrics(): EventBusMetrics {
+	const listeners = getListeners("*", { resolveWildcard: true });
+	return {
+		emissionCount: getEventNames()
+			.map(n => counterMap.get(n) || 0)
+			.reduce((acc, curr) => acc + curr, 0),
+		listenerCount: listeners.length,
+		errors: listenerErrorMap.values().toArray().flat(),
+		events: getEventNames().reduce(
+			(acc, name) => {
+				(acc[name] as EventMetrics) = getEventMetrics(name)!;
+				return acc;
+			},
+			{} as EventBusMetrics["events"],
+		),
+		listeners: listeners.reduce(
+			(acc, listener) => {
+				acc[listener.id] = getListenerMetrics(listener);
+				return acc;
+			},
+			{} as EventBusMetrics["listeners"],
+		),
+	};
+}
+
+export function getEventMetrics<T extends EventName>(name: T): EventMetrics<T> {
+	const listeners = getListeners(name, { resolveWildcard: true });
+	return {
+		name,
+		emissionCount: counterMap.get(name) || 0,
+		listenerCount: listeners.length,
+		listeners: listeners,
+	};
+}
+
+export function getListenerMetrics(id: string): ListenerMetrics | null;
+export function getListenerMetrics(listener: EventListener): ListenerMetrics;
+export function getListenerMetrics(
+	listenerOrId: EventListener | string,
+): ListenerMetrics | null {
+	const listener =
+		typeof listenerOrId == "string"
+			? listenerMap.get(listenerOrId)
+			: listenerOrId;
+	return listener
+		? {
+				id: listener.id,
+				key: listener.key,
+				options: listener.options as EventListenerOptions,
+				runCount: counterMap.get(listener.id)!,
+				source: listener.source,
+				errors: listenerErrorMap.get(listener.id) || [],
+			}
+		: null;
 }
 
 async function runListener<T extends EventKey>(
@@ -511,22 +455,30 @@ async function runListener<T extends EventKey>(
 	emission: EventEmission<ResolveWildcard<T>>,
 	sync?: boolean,
 ): Promise<void> {
-	if (listener.options.filter && !listener.options.filter(emission)) return;
+	if (listener.options.filter && !listener.options.filter(emission))
+		return Promise.resolve();
+
+	if (listener.options.once) removeListener(listener.id);
 
 	const handleError = (err: unknown) => {
 		const error =
 			err instanceof EventListenerError
 				? err
-				: new EventListenerError(listener.id, emission.id, err);
-		listener.errors.push(error);
+				: new EventListenerError(
+						listener.id,
+						emission.id,
+						emission.name,
+						err,
+					);
 
 		try {
 			listener.options.onError?.(error, emission);
 		} catch (error) {
-			// Log and eat the error
+			// TODO: Log and eat the error
 		}
 
-		emitSync("event-bus:listener-error", error);
+		emit("event-bus:listener-error", error);
+		mapPush(listenerErrorMap, listener.id, error);
 	};
 
 	try {
@@ -535,41 +487,22 @@ async function runListener<T extends EventKey>(
 			await runWithTimeout(
 				async () => listener.handler(emission),
 				LISTENER_TIMEOUT,
-				new EventListenerTimeoutError(listener.id, emission.id),
-			);
+				new EventListenerTimeoutError(
+					listener.id,
+					emission.id,
+					emission.name,
+				),
+			).catch(handleError);
 	} catch (err) {
 		handleError(err);
 	}
 
-	listener.runCount++;
-	listener.lastActivity = Date.now();
-	if (listener.options.once) removeListener(listener.id);
+	mapIncrement(counterMap, listener.id);
 }
 
-async function runWithTimeout(
-	fn: () => Promise<void>,
-	timeout: number,
-	rejection: unknown,
-) {
-	let timeoutId;
-	await Promise.race([
-		fn(),
-		new Promise(
-			(_, rej) =>
-				(timeoutId = setTimeout(() => {
-					rej(rejection);
-				}, timeout)),
-		),
-	]);
-	clearTimeout(timeoutId);
-}
-
-function pushWithLimit<T>(arr: T[], val: T, limit: number = HISTORY_LIMIT) {
-	arr.push(val);
-
-	if (arr.length > limit) arr.splice(0, arr.length - limit);
-}
-
+// TODO: The correct call site is the first one in the array which isn't in
+// this file. Instead of hardcoding indices like this, we can just find the
+// first call site from a different file
 function getSource(): string {
 	const callSites = getCallSites();
 	// When creating a listener using the builder, the correct call site is at

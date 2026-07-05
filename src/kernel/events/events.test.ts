@@ -686,6 +686,15 @@ describe("Kernel.Events", () => {
 				await emit("test:event-bus:dummy");
 				ok(err && err instanceof EventEmissionRecursionError);
 			});
+
+			// We don't test recursion prevention with dynamically changing
+			// event names (e.g. a "test:*" listener emitting "test:1" then
+			// "test:1:2", "test:1:2:3", etc...). Since every event
+			// needs to be statically defined in the EventMap beforehand,
+			// we're guaranteed to have a finite amount of events.
+			// Of course, nothing is enforcing this at runtime, but if you're
+			// purposefully ignoring type errors like this, you're just asking
+			// for trouble.
 		});
 	});
 

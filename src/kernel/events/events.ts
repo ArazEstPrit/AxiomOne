@@ -29,17 +29,6 @@ import type {
 } from "./types.ts";
 import { arrMax, mapIncrement, mapPush, runWithTimeout } from "#utils";
 
-// meta event listeners don't get run for emissions regarding themselves, i.e. a
-// "event-bus:new-listener" listener will not run for its own "new-listener"
-// emission.
-
-// meta event listeners are not awaited.
-
-// Sticky listeners with filters don't run instantly if the last emission is
-// filtered out. It might have been better design-wise if the sticky listener
-// was run with the last emission which passes the filter, however, that
-// requires storing all previous emissions, which takes up too much space.
-
 export const RECURSION_LIMIT = 2;
 export const LISTENER_TIMEOUT = 5000;
 

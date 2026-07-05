@@ -130,6 +130,9 @@ describe("Kernel.Events", () => {
 					deepStrictEqual(received, payload);
 				});
 
+				// It might have been better design-wise if the sticky listener
+				// was run with the last emission which passes the filter, however, that
+				// requires storing all previous emissions, which takes up too much space.
 				it("should ignore previous filtered events", async () => {
 					const payload = { a: 123 };
 					await emit("test:event-bus:payload", payload);
@@ -536,6 +539,38 @@ describe("Kernel.Events", () => {
 
 			await emit("test:event-bus:dummy");
 			ok(run1 && run2);
+		});
+
+		it("shouldn't await meta listeners", async () => {
+			let done = false;
+			listen("event-bus:new-listener", async () => {
+				await new Promise<void>(res =>
+					setTimeout(() => {
+						((done = true), res());
+					}, 300),
+				);
+			});
+
+			listen("test:event-bus:dummy", () => {});
+
+			ok(!done);
+			await new Promise<void>(res => setTimeout(res, 300));
+			ok(done);
+		});
+
+		it("shouldn't invoke meta listeners on events regarding themselves", async () => {
+			let run = 0;
+			listen("event-bus:listener-error", () => {
+				run++;
+				throw "oops";
+			});
+
+			listen("test:event-bus:dummy", () => {
+				throw "oops2";
+			});
+
+			await emit("test:event-bus:dummy");
+			strictEqual(run, 1);
 		});
 
 		it("should invoke listeners in priority order", async () => {

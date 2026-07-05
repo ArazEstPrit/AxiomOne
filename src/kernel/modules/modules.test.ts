@@ -6,7 +6,7 @@ import {
 	createNormalModules,
 	initTestGlobal,
 	restoreDir,
-} from "#test-utils";
+} from "#utils";
 import {
 	deepStrictEqual,
 	ok,
@@ -92,7 +92,7 @@ describe("Kernel.Modules", () => {
 					displayName: "Test",
 					entry: "index.ts",
 				},
-				"throw 'i threw'"
+				"throw 'i threw'",
 			);
 
 			await setup();
@@ -111,7 +111,7 @@ describe("Kernel.Modules", () => {
 					displayName: "Test",
 					entry: "index.js",
 				},
-				"global.__test.modules.push('js-module')"
+				"global.__test.modules.push('js-module')",
 			);
 
 			await setup();
@@ -138,19 +138,19 @@ describe("Kernel.Modules", () => {
 			ok(
 				noManifest &&
 					!noManifest.success &&
-					noManifest.error instanceof ModuleDiscoveryError
+					noManifest.error instanceof ModuleDiscoveryError,
 			);
 
 			ok(
 				invalidJson &&
 					!invalidJson.success &&
-					invalidJson.error instanceof ModuleDiscoveryError
+					invalidJson.error instanceof ModuleDiscoveryError,
 			);
 
 			ok(
 				jsonNotObject &&
 					!jsonNotObject.success &&
-					jsonNotObject.error instanceof ModuleDiscoveryError
+					jsonNotObject.error instanceof ModuleDiscoveryError,
 			);
 		});
 
@@ -167,7 +167,7 @@ describe("Kernel.Modules", () => {
 			createModule("wrong-field-type", undefined);
 			createManifest(
 				"wrong-field-type",
-				'{"name": 123, "entry": ["bla bla"]}'
+				'{"name": 123, "entry": ["bla bla"]}',
 			);
 
 			await setup();
@@ -182,25 +182,26 @@ describe("Kernel.Modules", () => {
 			ok(
 				missingField &&
 					!missingField.success &&
-					missingField.error instanceof ManifestMissingFieldError
+					missingField.error instanceof ManifestMissingFieldError,
 			);
 
 			ok(
 				nameMismatch &&
 					!nameMismatch.success &&
-					nameMismatch.error instanceof ManifestNameMismatchError
+					nameMismatch.error instanceof ManifestNameMismatchError,
 			);
 
 			ok(
 				nonExistingEntry &&
 					!nonExistingEntry.success &&
-					nonExistingEntry.error instanceof ManifestEntryNotFoundError
+					nonExistingEntry.error instanceof
+						ManifestEntryNotFoundError,
 			);
 
 			ok(
 				wrongFieldType &&
 					!wrongFieldType.success &&
-					wrongFieldType.error instanceof ManifestMissingFieldError
+					wrongFieldType.error instanceof ManifestMissingFieldError,
 			);
 		});
 
@@ -209,21 +210,21 @@ describe("Kernel.Modules", () => {
 				"no-init-export",
 				{ name: "no-init-export", entry: "index.ts" },
 				"export function notInit() {}",
-				{ exactCode: true }
+				{ exactCode: true },
 			);
 
 			createModule(
 				"init-not-a-function",
 				{ name: "init-not-a-function", entry: "index.ts" },
 				"export const init = 123",
-				{ exactCode: true }
+				{ exactCode: true },
 			);
 
 			createModule(
 				"throws-on-import",
 				{ name: "throws-on-import", entry: "index.ts" },
 				"throw new Error();",
-				{ exactCode: true }
+				{ exactCode: true },
 			);
 
 			await setup();
@@ -237,19 +238,20 @@ describe("Kernel.Modules", () => {
 			ok(
 				noInitExport &&
 					!noInitExport.success &&
-					noInitExport.error instanceof EntryPointMissingInitError
+					noInitExport.error instanceof EntryPointMissingInitError,
 			);
 
 			ok(
 				throwsOnImport &&
 					!throwsOnImport.success &&
-					throwsOnImport.error instanceof ModuleLoadError
+					throwsOnImport.error instanceof ModuleLoadError,
 			);
 
 			ok(
 				initNotAFunction &&
 					!initNotAFunction.success &&
-					initNotAFunction.error instanceof EntryPointMissingInitError
+					initNotAFunction.error instanceof
+						EntryPointMissingInitError,
 			);
 		});
 
@@ -257,7 +259,7 @@ describe("Kernel.Modules", () => {
 			createModule(
 				"init-throws",
 				{ name: "init-throws", entry: "index.ts" },
-				"throw new Error();"
+				"throw new Error();",
 			);
 
 			await setup();
@@ -269,7 +271,7 @@ describe("Kernel.Modules", () => {
 			ok(
 				initThrows &&
 					!initThrows.success &&
-					initThrows.error instanceof ModuleInitializationError
+					initThrows.error instanceof ModuleInitializationError,
 			);
 		});
 
@@ -327,14 +329,14 @@ describe("Kernel.Modules", () => {
 				"no-init-export",
 				{ name: "no-init-export", entry: "index.ts" },
 				"export function notInit() {}",
-				{ exactCode: true }
+				{ exactCode: true },
 			);
 
 			// Fails at init
 			createModule(
 				"init-throws",
 				{ name: "init-throws", entry: "index.ts" },
-				"throw new Error();"
+				"throw new Error();",
 			);
 
 			await setup();
@@ -353,7 +355,9 @@ describe("Kernel.Modules", () => {
 				errors.find(err => err instanceof ModuleDiscoveryError) &&
 					errors.find(err => err instanceof ModuleValidationError) &&
 					errors.find(err => err instanceof ModuleLoadError) &&
-					errors.find(err => err instanceof ModuleInitializationError)
+					errors.find(
+						err => err instanceof ModuleInitializationError,
+					),
 			);
 		});
 
@@ -377,7 +381,7 @@ describe("Kernel.Modules", () => {
 					entry: "index.ts",
 				},
 				"await new Promise(resolve => setTimeout(resolve, 3000));" +
-					"global.__test.modules.push('long-init');"
+					"global.__test.modules.push('long-init');",
 			);
 
 			await setup();
@@ -387,7 +391,7 @@ describe("Kernel.Modules", () => {
 			ok(
 				longInit &&
 					longInit.success &&
-					longInit.stage === "initialization"
+					longInit.stage === "initialization",
 			);
 
 			ok(longInit.initTime > 2900);
@@ -417,7 +421,7 @@ describe("Kernel.Modules", () => {
 					name: "test-module-3.5",
 					entry: "index.ts",
 				},
-				"throw new Error()"
+				"throw new Error()",
 			);
 			createModule("test-module-5.5", {
 				name: "test-module-5.5",

@@ -27,13 +27,12 @@ import {
 	notDeepStrictEqual,
 	rejects,
 } from "assert";
-import { initTestGlobal } from "#test-utils";
 import {
 	EventEmissionRecursionError,
 	EventListenerError,
 	EventListenerTimeoutError,
 } from "./errors.ts";
-import { nCr } from "#utils";
+import { initTestGlobal, nCr } from "#utils";
 
 declare module "#kernel/events" {
 	interface EventMap {

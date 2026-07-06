@@ -28,3 +28,11 @@ export function getActionNames(): ActionName[] {
 export function getAllActionInfo(): ActionInfo[] {
 	return null as never;
 }
+
+export function resolveAlias(alias: string): ActionName {
+	return null as never;
+}
+
+export function __resetState(): void {
+	if (!__test?.active) throw new Error("Not in a testing environment!");
+}

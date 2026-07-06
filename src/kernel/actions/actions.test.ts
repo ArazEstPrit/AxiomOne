@@ -1,8 +1,60 @@
-import { describe, it } from "node:test";
+import { describe, it, before, beforeEach } from "node:test";
+import {
+	__resetState,
+	call,
+	getActionInfo,
+	getActionNames,
+	register,
+	resolveAlias,
+} from "./actions.ts";
+import {
+	ActionDefinition,
+	ItemActionResult,
+	VoidActionResult,
+} from "./types.ts";
+import { deepStrictEqual, ok, strictEqual, throws } from "assert";
+import { initTestGlobal } from "#utils";
+import { ActionError } from "./errors.ts";
+
+declare module "#kernel/actions" {
+	interface ActionMap {
+		"test:actions:dummy": ActionDefinition<{}, VoidActionResult>;
+		"test:actions:params": ActionDefinition<
+			{ a: number },
+			VoidActionResult
+		>;
+		"test:actions:optional": ActionDefinition<
+			{ a?: number },
+			VoidActionResult
+		>;
+		"test:actions:result": ActionDefinition<{}, ItemActionResult<string>>;
+		"test:actions:async": ActionDefinition<
+			{},
+			Promise<ItemActionResult<number>>
+		>;
+	}
+}
 
 describe("Kernel.Actions", () => {
+	before(() => {
+		initTestGlobal();
+	});
+
+	beforeEach(() => {
+		__resetState();
+	});
+
 	describe(".register()", () => {
-		it("should register action");
+		it("should register action", () => {
+			register({
+				name: "test:actions:dummy",
+				arguments: {},
+				returnType: "void",
+				execute() {},
+			});
+
+			ok(getActionInfo("test:actions:dummy"));
+		});
 
 		// Do we want this? Ignoring re-registers could be limiting (how?), and
 		// overriding would allow stuff like a module wrapping another module's
@@ -11,44 +63,330 @@ describe("Kernel.Actions", () => {
 		// would provide better traceability, or maybe said traceability should
 		// be done by this function (i.e. the subsystem remembers overridden
 		// actions)
-		it("should override action on re-register");
+		it("should override action on re-register", () => {
+			register({
+				name: "test:actions:dummy",
+				description: "1",
+				arguments: {},
+				returnType: "void",
+				execute() {},
+			});
+			register({
+				name: "test:actions:dummy",
+				description: "2",
+				arguments: {},
+				returnType: "void",
+				execute() {},
+			});
+
+			strictEqual(getActionInfo("test:actions:dummy")?.description, "2");
+		});
 	});
 
 	describe(".call()", () => {
-		it("should trigger action handler");
+		it("should trigger action handler", () => {
+			let run = false;
+			register({
+				name: "test:actions:dummy",
+				arguments: {},
+				returnType: "void",
+				execute() {
+					run = true;
+				},
+			});
 
-		it("should handle throwing handler");
+			call("test:actions:dummy", {});
+			ok(run);
+		});
 
-		it("should return action result");
+		it("should return action result", () => {
+			register({
+				name: "test:actions:result",
+				arguments: {},
+				returnType: "item",
+				execute() {
+					throw "oops";
+				},
+			});
 
-		it("should pass parameters to action handler");
+			const res = call("test:actions:dummy", {});
+			ok(res);
+			ok(res.success);
+		});
 
-		it("should throw if action doesn't exist");
+		it("should handle throwing handler and return error", () => {
+			register({
+				name: "test:actions:dummy",
+				arguments: {},
+				returnType: "void",
+				execute() {
+					throw "oops";
+				},
+			});
 
-		it("should resolve aliases");
+			const res = call("test:actions:dummy", {});
+			ok(!res.success);
+			ok(res.error && res.error instanceof ActionError);
+			strictEqual(res.error.cause, "oops");
+		});
 
-		it("should validate parameters");
+		it("should return action result promise if action is async", async () => {
+			register({
+				name: "test:actions:async",
+				arguments: {},
+				returnType: "item",
+				async execute() {
+					await new Promise<void>(res => setTimeout(res, 300));
+					return 3;
+				},
+			});
 
-		it("should handle throwing validators");
+			const res = call("test:actions:async", {});
 
-		it("should not trigger handler if required parameters aren't provided");
+			ok(res instanceof Promise);
+			const awaited = await res;
+			strictEqual(awaited.data, 3);
+		});
 
-		it("should not trigger handler if required parameters are invalid");
+		it("should pass parameters to action handler", async () => {
+			let b;
+			register({
+				name: "test:actions:params",
+				arguments: { a: { type: "number" } },
+				returnType: "void",
+				execute(params) {
+					b = params.a;
+				},
+			});
+
+			call("test:actions:params", { a: 3 });
+			strictEqual(b, 3);
+		});
+
+		it("should throw if action doesn't exist", () => {
+			throws(() => {
+				call("test:actions:dummy", {});
+			});
+		});
+
+		it("should catch throwing validators and not run action", () => {
+			let runC = 0;
+			register({
+				name: "test:actions:params",
+				arguments: {
+					a: {
+						type: "number",
+						validate: () => {
+							throw "oops";
+						},
+					},
+				},
+				returnType: "void",
+				execute() {
+					runC++;
+				},
+			});
+
+			call("test:actions:params", { a: -1 });
+			call("test:actions:params", { a: 3 });
+			strictEqual(runC, 0);
+		});
+
+		it("should not trigger handler if required parameters aren't provided", () => {
+			let run = false;
+			register({
+				name: "test:actions:params",
+				arguments: { a: { type: "number" } },
+				returnType: "void",
+				execute() {
+					run = true;
+				},
+			});
+
+			// @ts-expect-error
+			call("test:actions:params", {});
+			ok(!run);
+		});
+
+		it("should not trigger handler if required parameters are invalid", () => {
+			let runC = 0;
+			register({
+				name: "test:actions:params",
+				arguments: { a: { type: "number", validate: val => val > 0 } },
+				returnType: "void",
+				execute() {
+					runC++;
+				},
+			});
+
+			call("test:actions:params", { a: -1 });
+			call("test:actions:params", { a: 3 });
+			strictEqual(runC, 1);
+		});
+
+		it("should trigger handler if optional parameters are invalid", () => {
+			let runC = 0;
+			register({
+				name: "test:actions:optional",
+				arguments: {
+					a: {
+						type: "number",
+						optional: true,
+						validate: val => val > 0,
+					},
+				},
+				returnType: "void",
+				execute() {
+					runC++;
+				},
+			});
+
+			call("test:actions:params", { a: -1 });
+			call("test:actions:params", { a: 3 });
+			strictEqual(runC, 2);
+		});
+
+		// TODO: figure out if recursion prevention and stuff should be done
 	});
 
 	describe(".getActionInfo()", () => {
-		it("should return registed action info");
+		it("should return action info", () => {
+			register({
+				name: "test:actions:params",
+				displayName: "params",
+				aliases: ["p"],
+				description: "1",
+				arguments: {
+					a: {
+						type: "number",
+						description: "a",
+						displayName: "A",
+						aliases: ["a"],
+					},
+				},
+				returnType: "void",
+				execute() {},
+			});
 
-		it("should resolve aliases");
+			const info = getActionInfo("test:actions:params");
+			ok(info);
+			deepStrictEqual(info, {
+				name: "test:actions:params",
+				displayName: "params",
+				aliases: ["p"],
+				description: "1",
+				arguments: {
+					a: {
+						type: "number",
+						description: "a",
+						displayName: "A",
+						aliases: ["a"],
+					},
+				},
+				returnType: "void",
+			});
+		});
 
-		it("should return null if action doesn't exist");
+		it("should return null if action doesn't exist", () => {
+			deepStrictEqual(getActionInfo("test:actions:dummy"), null);
+		});
 	});
 
 	describe(".getActionNames()", () => {
-		it("should return registed actions' names");
+		it("should return registed actions' names", () => {
+			deepStrictEqual(getActionNames(), []);
+			register({
+				name: "test:actions:dummy",
+				arguments: {},
+				returnType: "void",
+				execute() {},
+			});
+			deepStrictEqual(getActionNames(), ["test:actions:dummy"]);
+			register({
+				name: "test:actions:params",
+				arguments: {
+					a: {
+						type: "number",
+					},
+				},
+				returnType: "void",
+				execute() {},
+			});
+			deepStrictEqual(getActionNames(), [
+				"test:actions:dummy",
+				"test:actions:params",
+			]);
+		});
 	});
 
 	describe(".getAllActionInfo()", () => {
-		it("should return registed actions' info");
+		it("should return registed actions' info", () => {
+			deepStrictEqual(getActionNames(), []);
+			register({
+				name: "test:actions:dummy",
+				arguments: {},
+				returnType: "void",
+				execute() {},
+			});
+			deepStrictEqual(getActionNames(), [
+				{
+					name: "test:actions:dummy",
+					arguments: {},
+					returnType: "void",
+				},
+			]);
+			register({
+				name: "test:actions:params",
+				arguments: {
+					a: {
+						type: "number",
+					},
+				},
+				returnType: "void",
+				execute() {},
+			});
+			deepStrictEqual(getActionNames(), [
+				{
+					name: "test:actions:dummy",
+					arguments: {},
+					returnType: "void",
+				},
+				{
+					name: "test:actions:params",
+					arguments: {
+						a: {
+							type: "number",
+						},
+					},
+					returnType: "void",
+				},
+			]);
+		});
+	});
+
+	describe(".resolveAlias()", () => {
+		beforeEach(() => {
+			register({
+				name: "test:actions:dummy",
+				aliases: ["d"],
+				displayName: "D",
+				arguments: {},
+				returnType: "void",
+				execute() {},
+			});
+		});
+
+		it("should resolve aliases", () => {
+			deepStrictEqual("test:actions:dummy", resolveAlias("d"));
+		});
+		it("should resolve display names", () => {
+			deepStrictEqual("test:actions:dummy", resolveAlias("D"));
+		});
+		it("should return action name if provided", () => {
+			deepStrictEqual(
+				"test:actions:dummy",
+				resolveAlias("test:actions:dummy"),
+			);
+		});
 	});
 });

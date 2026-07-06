@@ -7,17 +7,14 @@ import { ActionError } from "./errors.ts";
  * // src/modules/my-module/index.ts
  * declare module "#kernel/actions" {
  * 	interface ActionMap {
- * 		"my-module:my-action": {
- * 			arguments: {};
- * 			returns: VoidActionResult;
- * 		};
- * 		"my-module:my-other-action": {
- * 			arguments: {
- * 				a: number;
- * 				b: string;
- * 			};
- * 			returns: ItemActionResult<{ c: boolean; d: Date }>;
- * 		};
+ *		"my-module:my-action": ActionDefinition<{}, VoidActionResult>;
+ *		"my-module:my-other-action": ActionDefinition<
+ *			{
+ *				a: number;
+ *				b: string;
+ *			},
+ *			ItemActionResult<{ c: boolean; d: Date }>
+ *		>;
  * 	}
  * }
  * ```
@@ -26,13 +23,23 @@ import { ActionError } from "./errors.ts";
  * Nested namespaces are also supported: `"module-name:ns1:ns2:action-name"`
  */
 export interface ActionMap {
-	"actions:help": {
-		arguments: {
+	"actions:help": ActionDefinition<
+		{
 			action?: string;
-		};
-		returns: HelpActionResult;
-	};
+		},
+		HelpActionResult
+	>;
 }
+
+// TODO: cause a type error in action if more arguments have been defined than
+// in the actionmap. Same with when calling
+// TODO: overload call function for when no args
+// TODO: force optional argument definitions to include `optional` field
+
+export type ActionDefinition<
+	A extends Record<string, unknown>,
+	R extends ActionResult | Promise<ActionResult>,
+> = { arguments: A; returns: R };
 
 export type ActionName = keyof ActionMap;
 

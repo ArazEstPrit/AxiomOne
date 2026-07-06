@@ -279,11 +279,10 @@ export async function emit<T extends EventName>(
 	}
 
 	const id = randomUUID();
-	const hrtime = process.hrtime(); // TODO
 	const staticEmission = {
 		payload: payload || null,
 		name: eventName,
-		timestamp: hrtime[0] * 1000000 + hrtime[1] / 1000,
+		timestamp: Date.now(),
 		id,
 		depth: eventStack.length,
 		parentId: eventStack.at(-1)?.id || null,

@@ -35,10 +35,6 @@ export interface ActionMap {
 	>;
 }
 
-// TODO: cause a type error in action if more arguments have been defined than
-// in the actionmap. Same with when calling
-// TODO: force optional argument definitions to include `optional` field
-
 export type ActionDefinition<
 	A extends Record<string, unknown>,
 	R extends ActionResult | Promise<ActionResult>,
@@ -73,7 +69,7 @@ interface BaseAction<
 	displayName?: string;
 	aliases?: string[];
 	description?: string;
-	arguments: AD;
+	arguments: InferArgsDefinition<A> extends AD ? AD : never;
 	returnType: Awaited<U>["type"];
 	execute(
 		params: A,
@@ -121,7 +117,8 @@ export type Arguments = Record<string, Argument>;
 export type Argument<
 	T extends ArgumentName = ArgumentName,
 	O extends boolean = boolean,
-> = T extends "array" ? ArrayArgument : BaseArgument<T, O>;
+> = (T extends "array" ? ArrayArgument : BaseArgument<T, O>) &
+	(O extends true ? { optional: true } : {});
 
 interface BaseArgument<T extends ArgumentName, O extends boolean> {
 	displayName?: string;
@@ -155,9 +152,12 @@ type IsOptional<T, K extends keyof T> = undefined extends T[K]
 		: false
 	: false;
 
-export type InferArgsDefinition<A> = {
-	[K in keyof A]-?: InferArgDefinition<A[K], IsOptional<A, K>>;
-};
+export type InferArgsDefinition<A> =
+	Record<never, never> extends Required<A>
+		? Record<string, void>
+		: {
+				[K in keyof A]-?: InferArgDefinition<A[K], IsOptional<A, K>>;
+			};
 
 type InferArgDefinition<
 	A,

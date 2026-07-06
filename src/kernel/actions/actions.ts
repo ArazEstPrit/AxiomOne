@@ -2,15 +2,24 @@ import type {
 	Action,
 	ActionInfo,
 	ActionName,
+	ActionNameWithNoArgs,
 	ArgumentsOf,
 	ResultOf,
 } from "./types.ts";
 
 export function register<const N extends ActionName>(action: Action<N>) {}
 
+export function call<const N extends ActionNameWithNoArgs>(
+	actionName: N,
+	rawArgs?: ArgumentsOf<N>,
+): ResultOf<N>;
 export function call<const N extends ActionName>(
 	actionName: N,
 	rawArgs: ArgumentsOf<N>,
+): ResultOf<N>;
+export function call<const N extends ActionName>(
+	actionName: N,
+	rawArgs?: ArgumentsOf<N>,
 ): ResultOf<N> {
 	return null as never;
 }

@@ -29,11 +29,9 @@ export type EventName = keyof EventMap;
 
 export type EventPayload<T extends EventName = EventName> = EventMap[T];
 
-export type EventWithPayload = {
-	[K in EventName]: EventPayload<K> extends null ? never : K;
+export type EventWithoutPayload = {
+	[K in EventName]: EventPayload<K> extends null ? K : never;
 }[EventName];
-
-export type EventWithoutPayload = Exclude<EventName, EventWithPayload>;
 
 /** Checks if a string has a namespace divider */
 type HasNoDivider<T extends string> = T extends `${string}:${string}`

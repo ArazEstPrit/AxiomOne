@@ -20,7 +20,6 @@ import type {
 	EventPayload,
 	EventSubscription,
 	EventWildcard,
-	EventWithPayload,
 	EventWithoutPayload,
 	ListenerMetrics,
 	PossibleKeys,
@@ -237,13 +236,13 @@ export function removeAllListeners(
 	);
 }
 
-export async function emit<T extends EventWithPayload>(
-	eventName: T,
-	payload: EventPayload<T>,
-): Promise<void>;
 export async function emit<T extends EventWithoutPayload>(
 	eventName: T,
 	payload?: null,
+): Promise<void>;
+export async function emit<T extends EventName>(
+	eventName: T,
+	payload: EventPayload<T>,
 ): Promise<void>;
 export async function emit<T extends EventName>(
 	eventName: T,

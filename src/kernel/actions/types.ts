@@ -21,6 +21,10 @@ import { ActionError } from "./errors.ts";
  *
  * Action names should have the following format: `"module-name:action-name"`.
  * Nested namespaces are also supported: `"module-name:ns1:ns2:action-name"`
+ *
+ * If defining an action with no arguments, provide {} as the argument type.
+ * If defining an action with no result, provide VoidActionResult as the result
+ * type.
  */
 export interface ActionMap {
 	"actions:help": ActionDefinition<
@@ -33,7 +37,6 @@ export interface ActionMap {
 
 // TODO: cause a type error in action if more arguments have been defined than
 // in the actionmap. Same with when calling
-// TODO: overload call function for when no args
 // TODO: force optional argument definitions to include `optional` field
 
 export type ActionDefinition<
@@ -48,6 +51,10 @@ export type ArgumentsOf<N extends ActionName = ActionName> =
 
 export type ResultOf<N extends ActionName = ActionName> =
 	ActionMap[N]["returns"];
+
+export type ActionNameWithNoArgs = {
+	[K in ActionName]: Record<never, never> extends ArgumentsOf<K> ? K : never;
+}[ActionName];
 
 export type Action<
 	N extends ActionName = ActionName,

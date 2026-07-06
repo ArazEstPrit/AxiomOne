@@ -7,7 +7,7 @@ import {
 	register,
 	resolveAlias,
 } from "./actions.ts";
-import {
+import type {
 	ActionDefinition,
 	ItemActionResult,
 	VoidActionResult,
@@ -95,7 +95,7 @@ describe("Kernel.Actions", () => {
 				},
 			});
 
-			call("test:actions:dummy", {});
+			call("test:actions:dummy");
 			ok(run);
 		});
 
@@ -109,7 +109,7 @@ describe("Kernel.Actions", () => {
 				},
 			});
 
-			const res = call("test:actions:dummy", {});
+			const res = call("test:actions:dummy");
 			ok(res);
 			ok(res.success);
 		});
@@ -124,7 +124,7 @@ describe("Kernel.Actions", () => {
 				},
 			});
 
-			const res = call("test:actions:dummy", {});
+			const res = call("test:actions:dummy");
 			ok(!res.success);
 			ok(res.error && res.error instanceof ActionError);
 			strictEqual(res.error.cause, "oops");
@@ -141,7 +141,7 @@ describe("Kernel.Actions", () => {
 				},
 			});
 
-			const res = call("test:actions:async", {});
+			const res = call("test:actions:async");
 
 			ok(res instanceof Promise);
 			const awaited = await res;
@@ -165,7 +165,7 @@ describe("Kernel.Actions", () => {
 
 		it("should throw if action doesn't exist", () => {
 			throws(() => {
-				call("test:actions:dummy", {});
+				call("test:actions:dummy");
 			});
 		});
 
@@ -241,8 +241,8 @@ describe("Kernel.Actions", () => {
 				},
 			});
 
-			call("test:actions:params", { a: -1 });
-			call("test:actions:params", { a: 3 });
+			call("test:actions:optional", { a: -1 });
+			call("test:actions:optional", { a: 3 });
 			strictEqual(runC, 2);
 		});
 

@@ -1,14 +1,12 @@
-import {
+import type {
 	Action,
+	ActionInfo,
 	ActionName,
 	ArgumentsOf,
-	InferArgsDefinition,
 	ResultOf,
 } from "./types.ts";
 
-export function register<const N extends ActionName>(
-	action: Action<N, InferArgsDefinition<ArgumentsOf<N>>>,
-) {}
+export function register<const N extends ActionName>(action: Action<N>) {}
 
 export function call<const N extends ActionName>(
 	actionName: N,
@@ -17,12 +15,16 @@ export function call<const N extends ActionName>(
 	return null as never;
 }
 
-export function getAction<const N extends ActionName>(
+export function getActionInfo<N extends ActionName>(
 	name: N,
-): Action<N> | null {
+): ActionInfo<N> | null {
 	return null as never;
 }
 
 export function getActionNames(): ActionName[] {
+	return null as never;
+}
+
+export function getAllActionInfo(): ActionInfo[] {
 	return null as never;
 }

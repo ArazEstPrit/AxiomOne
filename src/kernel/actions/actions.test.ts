@@ -36,8 +36,8 @@ describe("Kernel.Actions", () => {
 		it("should not trigger handler if required parameters are invalid");
 	});
 
-	describe(".getAction()", () => {
-		it("should return registed action");
+	describe(".getActionInfo()", () => {
+		it("should return registed action info");
 
 		it("should resolve aliases");
 
@@ -46,5 +46,9 @@ describe("Kernel.Actions", () => {
 
 	describe(".getActionNames()", () => {
 		it("should return registed actions' names");
+	});
+
+	describe(".getAllActionInfo()", () => {
+		it("should return registed actions' info");
 	});
 });

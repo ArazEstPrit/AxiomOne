@@ -68,8 +68,25 @@ interface BaseAction<
 		: inferResultData<U>;
 }
 
+export type ActionInfo<N extends ActionName = ActionName> = Omit<
+	Action<N>,
+	"execute" | "arguments"
+> & {
+	arguments: {
+		// Gonna need to change this to some recursive system once object
+		// arguments are added
+		[K in keyof Action<N>["arguments"]]: Omit<
+			Action<N>["arguments"][K],
+			"validate"
+		>;
+	};
+};
+
 type inferResultData<R> = R extends ActionResult ? R["data"] : void;
 
+// Future UIs will need to find a way to provide this subsystem with user data
+// in these formats. So for example, the cli might take dates as strings, and
+// parse them itself before passing them to the action.
 export interface ArgumentTypeMap {
 	string: string;
 	number: number;
@@ -79,20 +96,20 @@ export interface ArgumentTypeMap {
 	array: Array<unknown>;
 }
 
-type ArgumentName<T> = {
-	[K in ArgumentType]: T extends ArgumentTypeMap[K] ? K : never;
-}[ArgumentType];
+export type ArgumentType = ArgumentTypeMap[keyof ArgumentTypeMap];
 
-export type ArgumentType = keyof ArgumentTypeMap;
+type ArgumentName<T = ArgumentType> = {
+	[K in keyof ArgumentTypeMap]: T extends ArgumentTypeMap[K] ? K : never;
+}[keyof ArgumentTypeMap];
 
 export type Arguments = Record<string, Argument>;
 
 export type Argument<
-	T extends ArgumentType = ArgumentType,
+	T extends ArgumentName = ArgumentName,
 	O extends boolean = boolean,
 > = T extends "array" ? ArrayArgument : BaseArgument<T, O>;
 
-interface BaseArgument<T extends ArgumentType, O extends boolean> {
+interface BaseArgument<T extends ArgumentName, O extends boolean> {
 	displayName?: string;
 	description?: string;
 	aliases?: string[];
@@ -103,7 +120,7 @@ interface BaseArgument<T extends ArgumentType, O extends boolean> {
 }
 
 export interface ArrayArgument<
-	A extends ArgumentType = ArgumentType,
+	A extends ArgumentName = ArgumentName,
 	O extends boolean = boolean,
 > extends BaseArgument<"array", O> {
 	itemType: A;
@@ -169,12 +186,5 @@ export interface ListActionResult<T> extends BaseActionResult {
 
 export interface HelpActionResult extends BaseActionResult {
 	type: "help";
-	data: {
-		name: string;
-		displayName?: string;
-		aliases?: string[];
-		description?: string;
-		arguments: Omit<Argument, "validate">[];
-		returnType: ActionResult["type"];
-	}[];
+	data: ActionInfo[];
 }

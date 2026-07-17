@@ -80,17 +80,8 @@ interface BaseAction<
 
 export type ActionInfo<N extends ActionName = ActionName> = Omit<
 	Action<N>,
-	"execute" | "arguments"
-> & {
-	arguments: {
-		// Gonna need to change this to some recursive system once object
-		// arguments are added
-		[K in keyof Action<N>["arguments"]]: Omit<
-			Action<N>["arguments"][K],
-			"validate"
-		>;
-	};
-};
+	"execute"
+>;
 
 type inferResultData<R> = R extends ActionResult ? R["data"] : void;
 
@@ -112,15 +103,15 @@ type ArgumentName<T = ArgumentType> = {
 	[K in keyof ArgumentTypeMap]: T extends ArgumentTypeMap[K] ? K : never;
 }[keyof ArgumentTypeMap];
 
-export type Arguments = Record<string, Argument>;
-
-export type Argument<
+type Argument<
 	T extends ArgumentName = ArgumentName,
 	O extends boolean = boolean,
-> = (T extends "array" ? ArrayArgument : BaseArgument<T, O>) &
-	(O extends true ? { optional: true } : {});
+> = BaseArgument<T, O> & (O extends true ? { optional: true } : {});
 
-interface BaseArgument<T extends ArgumentName, O extends boolean> {
+interface BaseArgument<
+	T extends ArgumentName = ArgumentName,
+	O extends boolean = boolean,
+> {
 	displayName?: string;
 	description?: string;
 	aliases?: string[];
@@ -130,20 +121,13 @@ interface BaseArgument<T extends ArgumentName, O extends boolean> {
 	validate?: (value: ArgumentTypeMap[T]) => boolean | string;
 }
 
-export interface ArrayArgument<
-	A extends ArgumentName = ArgumentName,
-	O extends boolean = boolean,
-> extends BaseArgument<"array", O> {
+type ArrayArgument<A, O extends boolean> = Argument<"array", O> & {
 	itemType: A;
-}
+};
 
-// TODO
-// interface ObjectArgument<
-// 	A extends Arguments = Arguments,
-// 	O extends boolean = boolean,
-// > extends BaseArgument<"object", O> {
-// 	fields: A;
-// }
+type ObjectArgument<A, O extends boolean> = Argument<"object", O> & {
+	fields: A;
+};
 
 // Copied from: https://zirkelc.dev/posts/typescript-how-to-check-for-optional-properties
 type IsOptional<T, K extends keyof T> = undefined extends T[K]
@@ -154,18 +138,20 @@ type IsOptional<T, K extends keyof T> = undefined extends T[K]
 
 export type InferArgsDefinition<A> =
 	Record<never, never> extends Required<A>
-		? Record<string, void>
+		? Record<string, never>
 		: {
 				[K in keyof A]-?: InferArgDefinition<A[K], IsOptional<A, K>>;
 			};
 
-type InferArgDefinition<
-	A,
-	O extends boolean,
-	N extends ArgumentName<A> = ArgumentName<A>,
-> = N extends "array"
-	? ArrayArgument<ArgumentName<A extends Array<infer K> ? K : never>, O>
-	: Argument<N, O>;
+type InferArgDefinition<A, O extends boolean> =
+	ArgumentName<A> extends "array"
+		? ArrayArgument<
+				InferArgDefinition<A extends Array<infer K> ? K : never, false>,
+				O
+			>
+		: ArgumentName<A> extends "object"
+			? ObjectArgument<InferArgsDefinition<A>, O>
+			: Argument<ArgumentName<A>, O>;
 
 export type ActionResult<T = unknown> =
 	| VoidActionResult

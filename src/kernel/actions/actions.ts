@@ -7,7 +7,16 @@ import type {
 	ResultOf,
 } from "./types.ts";
 
-export function register<const N extends ActionName>(action: Action<N>) {}
+const actionMap = new Map<ActionName, Action>();
+const aliasMap = new Map<string, ActionName>();
+
+export function register<const N extends ActionName>(action: Action<N>): void;
+export function register(action: Action) {
+	actionMap.set(action.name, action);
+
+	if (action.displayName) aliasMap.set(action.displayName, action.name);
+	action.aliases?.forEach(a => aliasMap.set(a, action.name));
+}
 
 export function call<const N extends ActionNameWithNoArgs>(
 	actionName: N,
@@ -27,7 +36,17 @@ export function call<const N extends ActionName>(
 export function getActionInfo<N extends ActionName>(
 	name: N,
 ): ActionInfo<N> | null {
-	return null as never;
+	const action = actionMap.get(name) as Action<N> | undefined;
+	if (!action) return null;
+
+	return {
+		name: action.name,
+		displayName: action.displayName,
+		description: action.description,
+		aliases: action.aliases,
+		arguments: action.arguments,
+		returnType: action.returnType,
+	};
 }
 
 export function getActionNames(): ActionName[] {

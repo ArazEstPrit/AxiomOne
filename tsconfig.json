@@ -22,7 +22,7 @@
 		"strict": true,
 		"noUnusedLocals": true,
 		"noUnusedParameters": true,
-		"exactOptionalPropertyTypes": false,
+		"exactOptionalPropertyTypes": true,
 		"noImplicitReturns": true,
 		"noFallthroughCasesInSwitch": false,
 		"noUncheckedIndexedAccess": true,

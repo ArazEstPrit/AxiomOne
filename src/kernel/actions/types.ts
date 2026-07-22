@@ -54,14 +54,13 @@ export type ActionNameWithNoArgs = {
 
 export type Action<
 	N extends ActionName = ActionName,
-	AD extends InferArgsDefinition<ArgumentsOf<N>> = InferArgsDefinition<
-		ArgumentsOf<N>
-	>,
+	AD extends Arguments<ArgumentsOf<N>> = Arguments<ArgumentsOf<N>>,
 > = BaseAction<N, AD>;
 
+// TODO: make arguments with defaults show up as required in execute()
 interface BaseAction<
 	N extends ActionName,
-	AD extends InferArgsDefinition<A>,
+	AD extends Arguments<A>,
 	A extends ArgumentsOf<N> = ArgumentsOf<N>,
 	U extends ResultOf<N> = ResultOf<N>,
 > {
@@ -69,7 +68,7 @@ interface BaseAction<
 	displayName?: string;
 	aliases?: string[];
 	description?: string;
-	arguments: InferArgsDefinition<A> extends AD ? AD : never;
+	arguments: Arguments<A> extends AD ? AD : never;
 	returnType: Awaited<U>["type"];
 	execute(
 		params: A,
@@ -78,9 +77,8 @@ interface BaseAction<
 		: inferResultData<U>;
 }
 
-export type ActionInfo<N extends ActionName = ActionName> = Omit<
-	Action<N>,
-	"execute"
+export type ActionInfo<N extends ActionName = ActionName> = Readonly<
+	Omit<Action<N>, "execute">
 >;
 
 type inferResultData<R> = R extends ActionResult ? R["data"] : void;
@@ -88,7 +86,7 @@ type inferResultData<R> = R extends ActionResult ? R["data"] : void;
 // Future UIs will need to find a way to provide this subsystem with user data
 // in these formats. So for example, the cli might take dates as strings, and
 // parse them itself before passing them to the action.
-export interface ArgumentTypeMap {
+interface ArgumentTypeMap {
 	string: string;
 	number: number;
 	boolean: boolean;
@@ -99,34 +97,37 @@ export interface ArgumentTypeMap {
 
 export type ArgumentType = ArgumentTypeMap[keyof ArgumentTypeMap];
 
-type ArgumentName<T = ArgumentType> = {
+export type ArgumentName<T = ArgumentType> = {
 	[K in keyof ArgumentTypeMap]: T extends ArgumentTypeMap[K] ? K : never;
 }[keyof ArgumentTypeMap];
 
-type Argument<
-	T extends ArgumentName = ArgumentName,
+// TODO: options/choices
+type BaseArgument<
+	T extends ArgumentType = ArgumentType,
 	O extends boolean = boolean,
-> = BaseArgument<T, O> & (O extends true ? { optional: true } : {});
-
-interface BaseArgument<
-	T extends ArgumentName = ArgumentName,
-	O extends boolean = boolean,
-> {
+> = {
 	displayName?: string;
 	description?: string;
 	aliases?: string[];
-	type: T;
+	type: ArgumentName<T>;
 	optional?: O;
-	default?: ArgumentTypeMap[T];
-	validate?: (value: ArgumentTypeMap[T]) => boolean | string;
-}
+	default?: T;
+	validate?: (value: Exclude<T, undefined>) => boolean | string;
+} & (O extends true ? { optional: true } : {});
 
-type ArrayArgument<A, O extends boolean> = Argument<"array", O> & {
-	itemType: A;
+type ArrayArgument<A extends ArgumentType, O extends boolean> = BaseArgument<
+	A[],
+	O
+> & {
+	items: Omit<Argument<A, false>, "default" | "optional">;
 };
 
-type ObjectArgument<A, O extends boolean> = Argument<"object", O> & {
-	fields: A;
+// Normally A should extend Arguments, but doing so angers the typescript gods
+type ObjectArgument<
+	A extends Record<string, ArgumentType>,
+	O extends boolean,
+> = Omit<BaseArgument<A, O>, "default"> & {
+	fields: Arguments<A>;
 };
 
 // Copied from: https://zirkelc.dev/posts/typescript-how-to-check-for-optional-properties
@@ -136,22 +137,33 @@ type IsOptional<T, K extends keyof T> = undefined extends T[K]
 		: false
 	: false;
 
-export type InferArgsDefinition<A> =
-	Record<never, never> extends Required<A>
+export type Arguments<
+	A extends Record<string, ArgumentType> = Record<string, ArgumentType>,
+> =
+	Required<A> extends Record<string, never>
 		? Record<string, never>
 		: {
-				[K in keyof A]-?: InferArgDefinition<A[K], IsOptional<A, K>>;
+				[K in keyof A]-?: Argument<A[K], IsOptional<A, K>>;
 			};
 
-type InferArgDefinition<A, O extends boolean> =
-	ArgumentName<A> extends "array"
-		? ArrayArgument<
-				InferArgDefinition<A extends Array<infer K> ? K : never, false>,
-				O
-			>
-		: ArgumentName<A> extends "object"
-			? ObjectArgument<InferArgsDefinition<A>, O>
-			: Argument<ArgumentName<A>, O>;
+export type Argument<
+	A extends ArgumentType = ArgumentType,
+	O extends boolean = boolean,
+> = ({
+	[K in Exclude<keyof ArgumentTypeMap, "array" | "object">]: BaseArgument<
+		A,
+		O
+	>;
+} & {
+	array: ArrayArgument<
+		A extends Array<infer K> ? (K extends ArgumentType ? K : never) : never,
+		O
+	>;
+	object: ObjectArgument<
+		A extends Record<string, ArgumentType> ? A : never,
+		O
+	>;
+})[ArgumentName<A>];
 
 export type ActionResult<T = unknown> =
 	| VoidActionResult
@@ -166,12 +178,12 @@ interface BaseActionResult {
 	type: string;
 	success: boolean;
 	error?: ActionError;
-	data: unknown;
+	data?: unknown;
 }
 
 export interface VoidActionResult extends BaseActionResult {
 	type: "void";
-	data: void;
+	data?: void;
 }
 
 export interface ItemActionResult<T> extends BaseActionResult {

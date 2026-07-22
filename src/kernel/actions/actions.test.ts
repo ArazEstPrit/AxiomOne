@@ -4,6 +4,7 @@ import {
 	call,
 	getActionInfo,
 	getActionNames,
+	getAllActionInfo,
 	register,
 	resolveAlias,
 } from "./actions.ts";
@@ -12,9 +13,13 @@ import type {
 	ItemActionResult,
 	VoidActionResult,
 } from "./types.ts";
-import { deepStrictEqual, ok, strictEqual, throws } from "assert";
+import { deepStrictEqual, ok, strictEqual } from "assert";
 import { initTestGlobal } from "#utils";
-import { ActionError } from "./errors.ts";
+import {
+	ActionError,
+	ActionNotFoundError,
+	RequiredArgumentMissingError,
+} from "./errors.ts";
 
 declare module "#kernel/actions" {
 	interface ActionMap {
@@ -31,6 +36,35 @@ declare module "#kernel/actions" {
 		"test:actions:async": ActionDefinition<
 			{},
 			Promise<ItemActionResult<number>>
+		>;
+		"test:actions:object": ActionDefinition<
+			{
+				a: {
+					a?: number;
+					b: number;
+				};
+				b?: {
+					a: number;
+					b?: number;
+				};
+			},
+			VoidActionResult
+		>;
+		"test:actions:array": ActionDefinition<
+			{
+				a: number[];
+				b?: number[];
+			},
+			VoidActionResult
+		>;
+		"test:actions:nested": ActionDefinition<
+			{
+				a: {
+					a?: number;
+					b: number;
+				}[];
+			},
+			VoidActionResult
 		>;
 	}
 }
@@ -99,21 +133,6 @@ describe("Kernel.Actions", () => {
 			ok(run);
 		});
 
-		it("should return action result", () => {
-			register({
-				name: "test:actions:result",
-				arguments: {},
-				returnType: "item",
-				execute() {
-					throw "oops";
-				},
-			});
-
-			const res = call("test:actions:dummy");
-			ok(res);
-			ok(res.success);
-		});
-
 		it("should handle throwing handler and return error", () => {
 			register({
 				name: "test:actions:dummy",
@@ -148,7 +167,30 @@ describe("Kernel.Actions", () => {
 			strictEqual(awaited.data, 3);
 		});
 
-		it("should pass parameters to action handler", async () => {
+		it("should return action result", () => {
+			register({
+				name: "test:actions:result",
+				arguments: {},
+				returnType: "item",
+				execute() {
+					return "lol";
+				},
+			});
+
+			const res = call("test:actions:result");
+			ok(res);
+			ok(res.success);
+			deepStrictEqual(res.data, "lol");
+		});
+
+		it("should return error if action doesn't exist", () => {
+			const res = call("test:actions:dummy");
+
+			ok(!res.success);
+			ok(res.error && res.error instanceof ActionNotFoundError);
+		});
+
+		it("should pass parameters to action handler", () => {
 			let b;
 			register({
 				name: "test:actions:params",
@@ -163,10 +205,75 @@ describe("Kernel.Actions", () => {
 			strictEqual(b, 3);
 		});
 
-		it("should throw if action doesn't exist", () => {
-			throws(() => {
-				call("test:actions:dummy");
+		it("should not trigger handler if required parameters aren't provided", () => {
+			let run = false;
+			register({
+				name: "test:actions:params",
+				arguments: { a: { type: "number" } },
+				returnType: "void",
+				execute() {
+					run = true;
+				},
 			});
+
+			const res = call("test:actions:params", { a: undefined as any });
+			ok(!run && !res.success);
+			ok(res.error instanceof RequiredArgumentMissingError);
+		});
+
+		it("should not trigger handler if required parameters are invalid", () => {
+			let runC = 0;
+			register({
+				name: "test:actions:params",
+				arguments: { a: { type: "number", validate: val => val > 0 } },
+				returnType: "void",
+				execute() {
+					runC++;
+				},
+			});
+
+			call("test:actions:params", { a: -1 });
+			call("test:actions:params", { a: 3 });
+			strictEqual(runC, 1);
+		});
+
+		it("should not trigger handler if optional parameters are invalid", () => {
+			let runC = 0;
+			register({
+				name: "test:actions:optional",
+				arguments: {
+					a: {
+						type: "number",
+						optional: true,
+						validate: val => val > 0,
+					},
+				},
+				returnType: "void",
+				execute() {
+					runC++;
+				},
+			});
+
+			call("test:actions:optional", { a: -1 });
+			call("test:actions:optional", { a: 3 });
+			strictEqual(runC, 1);
+		});
+
+		it("should handle invalid parameter types", () => {
+			let runC = 0;
+			register({
+				name: "test:actions:params",
+				arguments: { a: { type: "number", validate: val => val > 0 } },
+				returnType: "void",
+				execute() {
+					runC++;
+				},
+			});
+
+			// @ts-expect-error
+			call("test:actions:params", { a: "123123" });
+			call("test:actions:params", { a: 3 });
+			strictEqual(runC, 1);
 		});
 
 		it("should catch throwing validators and not run action", () => {
@@ -192,47 +299,27 @@ describe("Kernel.Actions", () => {
 			strictEqual(runC, 0);
 		});
 
-		it("should not trigger handler if required parameters aren't provided", () => {
-			let run = false;
-			register({
-				name: "test:actions:params",
-				arguments: { a: { type: "number" } },
-				returnType: "void",
-				execute() {
-					run = true;
-				},
-			});
-
-			// @ts-expect-error
-			call("test:actions:params", {});
-			ok(!run);
-		});
-
-		it("should not trigger handler if required parameters are invalid", () => {
+		it("should validate array and array items", () => {
 			let runC = 0;
 			register({
-				name: "test:actions:params",
-				arguments: { a: { type: "number", validate: val => val > 0 } },
-				returnType: "void",
-				execute() {
-					runC++;
-				},
-			});
-
-			call("test:actions:params", { a: -1 });
-			call("test:actions:params", { a: 3 });
-			strictEqual(runC, 1);
-		});
-
-		it("should trigger handler if optional parameters are invalid", () => {
-			let runC = 0;
-			register({
-				name: "test:actions:optional",
+				name: "test:actions:array",
 				arguments: {
 					a: {
-						type: "number",
+						type: "array",
+						items: {
+							type: "number",
+							validate: n => n % 2 == 0 || "Must be even",
+						},
+						validate: arr => arr.length == 2 || "Wrong length",
+					},
+					b: {
+						type: "array",
 						optional: true,
-						validate: val => val > 0,
+						items: {
+							type: "number",
+							validate: n => n % 2 == 0 || "Must be even",
+						},
+						validate: arr => arr.length == 2 || "Wrong length",
 					},
 				},
 				returnType: "void",
@@ -241,9 +328,188 @@ describe("Kernel.Actions", () => {
 				},
 			});
 
-			call("test:actions:optional", { a: -1 });
-			call("test:actions:optional", { a: 3 });
-			strictEqual(runC, 2);
+			call("test:actions:array", {
+				a: [2, 4],
+				b: [4, 6],
+			});
+
+			call("test:actions:array", {
+				a: [2, 3],
+			});
+
+			call("test:actions:array", {
+				a: [2, 4, 6],
+			});
+
+			call("test:actions:array", {
+				a: [2, 4],
+				b: [1, 2],
+			});
+
+			call("test:actions:array", {
+				a: [2, 4],
+				b: [2, 8, 4],
+			});
+
+			deepStrictEqual(runC, 1);
+		});
+
+		it("should validate object and object fields", () => {
+			let runC = 0;
+			register({
+				name: "test:actions:object",
+				arguments: {
+					a: {
+						type: "object",
+						validate: ({ a, b }) => (a || 0) + b == 10,
+						fields: {
+							a: {
+								type: "number",
+								validate: n => n % 2 == 0,
+								optional: true,
+							},
+							b: { type: "number", validate: n => n < 5 },
+						},
+					},
+					b: {
+						type: "object",
+						optional: true,
+						validate: ({ a, b }) => a + (b || 0) == 10,
+						fields: {
+							a: {
+								type: "number",
+								validate: n => n % 2 == 0,
+							},
+							b: {
+								type: "number",
+								optional: true,
+								validate: n => n < 5,
+							},
+						},
+					},
+				},
+				returnType: "void",
+				execute() {
+					runC++;
+				},
+			});
+
+			// All valid
+			call("test:actions:object", {
+				a: { a: 8, b: 2 },
+				b: { a: 6, b: 4 },
+			});
+
+			// a.a invalid
+			call("test:actions:object", {
+				a: { a: 7, b: 3 },
+				b: { a: 6, b: 4 },
+			});
+
+			// a.b invalid
+			call("test:actions:object", {
+				a: { a: 4, b: 6 },
+				b: { a: 6, b: 4 },
+			});
+
+			// a invalid
+			call("test:actions:object", {
+				a: { a: 2, b: 3 },
+			});
+
+			// b.a invalid
+			call("test:actions:object", {
+				a: { a: 8, b: 2 },
+				b: { a: 7, b: 3 },
+			});
+
+			// b.b invalid
+			call("test:actions:object", {
+				a: { a: 8, b: 2 },
+				b: { a: 4, b: 6 },
+			});
+
+			// b invalid
+			call("test:actions:object", {
+				a: { a: 8, b: 2 },
+				b: { a: 2, b: 3 },
+			});
+
+			deepStrictEqual(runC, 1);
+		});
+
+		it("should validate nested objects and arrays", () => {
+			let runC = 0;
+			register({
+				name: "test:actions:nested",
+				arguments: {
+					a: {
+						type: "array",
+						validate: a => a.length == 2,
+						items: {
+							type: "object",
+							validate: ({ a, b }) => (a || 0) + b == 10,
+							fields: {
+								a: {
+									type: "number",
+									validate: n => n % 2 == 0,
+									optional: true,
+								},
+								b: { type: "number", validate: n => n < 5 },
+							},
+						},
+					},
+				},
+				returnType: "void",
+				execute() {
+					runC++;
+				},
+			});
+
+			// Valid
+			call("test:actions:nested", {
+				a: [
+					{ a: 8, b: 2 },
+					{ a: 8, b: 2 },
+				],
+			});
+
+			// a invalid
+			call("test:actions:nested", {
+				a: [{ a: 8, b: 2 }],
+			});
+
+			// a[0] invalid
+			call("test:actions:nested", {
+				a: [
+					{ a: 4, b: 2 },
+					{ a: 8, b: 2 },
+				],
+			});
+
+			// a[1] invalid
+			call("test:actions:nested", {
+				a: [
+					{ a: 8, b: 2 },
+					{ a: 6, b: 2 },
+				],
+			});
+
+			// a.a invalid
+			call("test:actions:nested", {
+				a: [
+					{ a: 7, b: 3 },
+					{ a: 8, b: 2 },
+				],
+			});
+
+			// a.b invalid
+			call("test:actions:nested", {
+				a: [
+					{ a: 8, b: 2 },
+					{ a: 4, b: 6 },
+				],
+			});
 		});
 
 		// TODO: figure out if recursion prevention and stuff should be done
@@ -321,14 +587,14 @@ describe("Kernel.Actions", () => {
 
 	describe(".getAllActionInfo()", () => {
 		it("should return registed actions' info", () => {
-			deepStrictEqual(getActionNames(), []);
+			deepStrictEqual(getAllActionInfo(), []);
 			register({
 				name: "test:actions:dummy",
 				arguments: {},
 				returnType: "void",
 				execute() {},
 			});
-			deepStrictEqual(getActionNames(), [
+			deepStrictEqual(getAllActionInfo(), [
 				{
 					name: "test:actions:dummy",
 					arguments: {},
@@ -345,7 +611,7 @@ describe("Kernel.Actions", () => {
 				returnType: "void",
 				execute() {},
 			});
-			deepStrictEqual(getActionNames(), [
+			deepStrictEqual(getAllActionInfo(), [
 				{
 					name: "test:actions:dummy",
 					arguments: {},
@@ -379,14 +645,20 @@ describe("Kernel.Actions", () => {
 		it("should resolve aliases", () => {
 			deepStrictEqual("test:actions:dummy", resolveAlias("d"));
 		});
+
 		it("should resolve display names", () => {
 			deepStrictEqual("test:actions:dummy", resolveAlias("D"));
 		});
+
 		it("should return action name if provided", () => {
 			deepStrictEqual(
 				"test:actions:dummy",
 				resolveAlias("test:actions:dummy"),
 			);
+		});
+
+		it("should return null if no action matches", () => {
+			deepStrictEqual(null, resolveAlias("doesn't exist"));
 		});
 	});
 });

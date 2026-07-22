@@ -50,3 +50,30 @@ export async function runWithTimeout(
 		clearTimeout(timeoutId);
 	})) as Promise<void>;
 }
+
+export function deepFreeze<T>(obj: T): Readonly<T> {
+	if (obj === null || typeof obj !== "object") {
+		return obj;
+	}
+
+	Object.keys(obj).forEach(key => {
+		deepFreeze((obj as Record<string, unknown>)[key]);
+	});
+
+	return Object.freeze(obj);
+}
+
+export function isObject(obj: unknown): obj is object {
+	return typeof obj === "object" && !Array.isArray(obj) && obj !== null;
+}
+
+export function trycatch<T, U>(
+	tryFn: () => T,
+	catchFn: (err: unknown) => U = err => err as U,
+): T | U {
+	try {
+		return tryFn();
+	} catch (error) {
+		return catchFn(error);
+	}
+}

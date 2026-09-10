@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from "async_hooks";
 import { randomUUID } from "crypto";
 import { getCallSites } from "util";
 import {
@@ -27,6 +26,14 @@ import type {
 	StaticEventEmission,
 } from "./types.ts";
 import { arrMax, mapIncrement, mapPush, runWithTimeout } from "#utils";
+import { begin, kindCurrent, kindStack, run } from "../execution/execution.ts";
+
+declare module "#kernel/execution" {
+	export interface ExecutionKindMap {
+		event: { event: EventEmission };
+		"event-listener": { listenerId: string };
+	}
+}
 
 export const RECURSION_LIMIT = 2;
 export const LISTENER_TIMEOUT = 5000;
@@ -38,10 +45,6 @@ const wildcardIndex = new Map<EventWildcard, Set<EventName>>([
 	["*", new Set()],
 ]);
 
-const parentStorage = new AsyncLocalStorage<{
-	eventStack: EventEmission[];
-	runListenerId: string;
-}>();
 // Though mapping events to their parent emissions alone, and recursively
 // building the stack would be more space efficient, it would not work if the
 // same event is present multiple times in a single stack, and would result in
@@ -250,8 +253,10 @@ export async function emit<T extends EventName>(
 ): Promise<void> {
 	updateWildcardIndex(eventName);
 
-	const eventStack = parentStorage.getStore()?.eventStack || [];
-	const parentListenerId = parentStorage.getStore()?.runListenerId;
+	const eventStack = kindStack("event").map(n => n.attributes.event) || [];
+	const parentListenerId =
+		kindCurrent("event-listener")?.attributes.listenerId;
+
 	const origin: EmissionOrigin = parentListenerId
 		? { type: "listener", listenerId: parentListenerId }
 		: { source: getSource(), type: "direct" };
@@ -318,16 +323,20 @@ export async function emit<T extends EventName>(
 		},
 	} as EventEmission;
 
-	for (const listener of listeners) {
-		const context = {
-			eventStack: [...eventStack, emission],
-			runListenerId: listener.id,
-		};
+	using scope = begin("event", `Event: "${eventName}"`, { event: emission });
 
-		await parentStorage.run(context, () => runListener(listener, emission));
+	for (const listener of listeners) {
+		await run(
+			"event-listener",
+			"Listener " + listener.id,
+			() => runListener(listener, emission),
+			{ listenerId: listener.id },
+		);
 
 		if (stopped) break;
 	}
+
+	scope.end();
 
 	lastEmissionStackMap.set(eventName, [...eventStack, emission]);
 }

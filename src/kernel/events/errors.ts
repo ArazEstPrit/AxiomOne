@@ -14,6 +14,7 @@ export class EventListenerError extends EventBusError {
 		cause: unknown,
 	) {
 		super();
+		this.name = "EventListenerError";
 		this.message = `Event Listener "${id}" threw with the following error: ${cause}`;
 		this.id = id;
 		this.emissionId = emissionId;
@@ -25,6 +26,7 @@ export class EventListenerError extends EventBusError {
 export class EventListenerTimeoutError extends EventListenerError {
 	constructor(listenerId: string, emissionId: string, eventName: EventName) {
 		super(listenerId, emissionId, eventName, "Listener timeout exceeded");
+		this.name = "EventListenerTimeoutError";
 	}
 }
 
@@ -36,5 +38,6 @@ export class EventEmissionRecursionError extends EventListenerError {
 			eventName,
 			`Event "${eventName}" has hit the recursion limit.`,
 		);
+		this.name = "EventEmissionRecursionError";
 	}
 }

@@ -1,24 +1,30 @@
 export interface ExecutionNode<K extends ExecutionKind = ExecutionKind> {
-	readonly id: string;
-	readonly kind: ExecutionKind;
-	readonly name: string;
+	id: string;
+	kind: ExecutionKind;
+	name: string;
 	// TODO: origin - also refactor event bus origin
 
-	readonly parentId: string | null;
+	parentId: string | null;
 
-	readonly attributes: ExecutionNodeAttributes<K>;
+	attributes: ExecutionNodeAttributes<K>;
 }
 
 export interface ExecutionContext {
 	readonly stack: readonly ExecutionNode[];
 }
 
-export interface ExecutionHandle {
+export interface ExecutionHandle<K extends ExecutionKind> {
 	readonly id: string;
-	readonly node: ExecutionNode;
-
 	readonly ended: boolean;
+	readonly node: Readonly<ExecutionNode<K>>;
 
+	setAttribute<
+		F extends keyof ExecutionNodeAttributes<K>,
+		A extends ExecutionNodeAttributes<K>[F],
+	>(
+		field: F,
+		value: A,
+	): A;
 	end(): void;
 	[Symbol.dispose](): void;
 }
@@ -30,4 +36,4 @@ export interface ExecutionKindMap {
 export type ExecutionKind = keyof ExecutionKindMap;
 
 export type ExecutionNodeAttributes<K extends ExecutionKind = ExecutionKind> =
-	Readonly<ExecutionKindMap[K]>;
+	ExecutionKindMap[K];

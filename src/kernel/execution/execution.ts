@@ -11,27 +11,31 @@ import { ParentExecutionEndError } from "./errors.ts";
 
 const storage = new AsyncLocalStorage<ExecutionContext>();
 
-export function current(): ExecutionNode | null {
-	return storage.getStore()?.stack.at(-1) || null;
+export function current(): Readonly<ExecutionNode> | null {
+	return Object.freeze(storage.getStore()?.stack.at(-1)) || null;
 }
 
-export function stack(): readonly ExecutionNode[] {
-	return storage.getStore()?.stack || [];
+export function stack(): readonly Readonly<ExecutionNode>[] {
+	return Object.freeze(
+		storage.getStore()?.stack.map(n => Object.freeze(n)) || [],
+	);
 }
 
 export function kindStack<K extends ExecutionKind>(
 	kind: K,
-): readonly ExecutionNode<K>[] {
+): readonly Readonly<ExecutionNode<K>>[] {
 	return stack().filter(n => n.kind == kind) as ExecutionNode<K>[];
 }
 
 export function kindCurrent<K extends ExecutionKind>(
 	kind: K,
-): ExecutionNode<K> | null {
+): Readonly<ExecutionNode<K>> | null {
 	return (
-		(stack()
-			.filter(n => n.kind == kind)
-			.at(-1) as ExecutionNode<K>) || null
+		Object.freeze(
+			stack()
+				.filter(n => n.kind == kind)
+				.at(-1) as ExecutionNode<K>,
+		) || null
 	);
 }
 
@@ -39,7 +43,7 @@ export function begin<K extends ExecutionKind>(
 	kind: K,
 	name: string,
 	attributes: ExecutionNodeAttributes<K>,
-): ExecutionHandle {
+): ExecutionHandle<K> {
 	const handle = createNode(kind, name, attributes);
 
 	storage.enterWith({ stack: [...stack(), handle.node] });
@@ -50,7 +54,7 @@ export function begin<K extends ExecutionKind>(
 export function run<T, K extends ExecutionKind>(
 	kind: K,
 	name: string,
-	fn: (handle: ExecutionHandle) => T,
+	fn: (handle: ExecutionHandle<K>) => T,
 	attributes: ExecutionNodeAttributes<K>,
 ): T {
 	const handle = createNode(kind, name, attributes);
@@ -58,23 +62,33 @@ export function run<T, K extends ExecutionKind>(
 	return storage.run({ stack: [...stack(), handle.node] }, () => fn(handle));
 }
 
-function createNode(
-	kind: ExecutionKind,
-	name: string,
-	attributes: ExecutionNodeAttributes,
-): ExecutionHandle {
-	return createHandle(
-		Object.freeze({
-			id: randomUUID(),
-			kind,
-			name,
-			parentId: current()?.id || null,
-			attributes,
-		}),
-	);
+export function setKindAttribute<
+	K extends ExecutionKind,
+	F extends keyof ExecutionNodeAttributes<K>,
+	A extends ExecutionNodeAttributes<K>[F],
+>(kind: K, field: F, value: A): A {
+	const node = kindCurrent(kind);
+	if (node) node.attributes[field] = value;
+	return value;
 }
 
-function createHandle(node: ExecutionNode): ExecutionHandle {
+function createNode<K extends ExecutionKind>(
+	kind: K,
+	name: string,
+	attributes: ExecutionNodeAttributes,
+): ExecutionHandle<K> {
+	return createHandle({
+		id: randomUUID(),
+		kind,
+		name,
+		parentId: current()?.id || null,
+		attributes,
+	} as ExecutionNode<K>);
+}
+
+function createHandle<K extends ExecutionKind>(
+	node: ExecutionNode<K>,
+): ExecutionHandle<K> {
 	let ended = false;
 
 	const end = () => {
@@ -89,12 +103,20 @@ function createHandle(node: ExecutionNode): ExecutionHandle {
 	};
 
 	return {
-		id: node.id,
-		node,
+		get id() {
+			return node.id;
+		},
+		get node() {
+			return Object.freeze(node);
+		},
 		get ended() {
 			return ended;
 		},
 
+		setAttribute(field, value) {
+			node.attributes[field] = value;
+			return value;
+		},
 		end,
 		[Symbol.dispose]: end,
 	};

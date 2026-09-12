@@ -1,3 +1,4 @@
+import { begin } from "#kernel/execution";
 import { deepFreeze, isObject, trycatch } from "#utils";
 import {
 	ActionExecutionError,
@@ -17,6 +18,12 @@ import type {
 	ArgumentType,
 	ResultOf,
 } from "./types.ts";
+
+declare module "#kernel/execution" {
+	export interface ExecutionKindMap {
+		action: { name: ActionName; args: ArgumentsOf; result: ResultOf };
+	}
+}
 
 const actionMap = new Map<ActionName, Action>();
 const aliasMap = new Map<string, ActionName>();
@@ -41,56 +48,69 @@ export function call<const N extends ActionName>(
 	actionName: N,
 	input?: ArgumentsOf<N>,
 ): ResultOf<N> {
-	const action = actionMap.get(actionName) as Action<N> | undefined;
-	if (!action)
-		return {
+	using h = begin("action", "Action", {
+		name: actionName,
+		args: input!,
+		result: null!,
+	});
+
+	try {
+		const action = getAction(actionName);
+
+		const args = parseArgs(
+			action.arguments as Arguments,
+			input || {},
+			actionName,
+		);
+
+		return h.setAttribute("result", executeAction(action, args));
+	} catch (error) {
+		return h.setAttribute("result", {
 			type: "void",
 			success: false,
-			error: new ActionNotFoundError(actionName),
-		};
-
-	let result;
-	try {
-		result = action.execute(
-			parseArgs(action.arguments as Arguments, input || {}, actionName),
-		);
-	} catch (err) {
-		return {
-			type: action.returnType,
-			success: false,
-			error:
-				err instanceof ArgumentError
-					? err
-					: new ActionExecutionError(actionName, err),
-		} as ResultOf<N>;
-	}
-
-	if (result instanceof Promise) {
-		return result
-			.then(res => ({
-				type: action.returnType,
-				success: true,
-				data: res,
-			}))
-			.catch(err => ({
-				type: action.returnType,
-				success: false,
-				error: new ActionExecutionError(actionName, err),
-			})) as ResultOf<N>;
-	} else {
-		return {
-			type: action.returnType,
-			success: true,
-			data: result,
-		} as ResultOf<N>;
+			error: error as ActionNotFoundError | ArgumentError,
+		});
 	}
 }
 
-function parseArgs(
+function getAction<N extends ActionName>(actionName: N): Action<N> {
+	if (!actionMap.has(actionName)) throw new ActionNotFoundError(actionName);
+	return actionMap.get(actionName) as Action<N>;
+}
+
+function executeAction<N extends ActionName>(
+	action: Action<N>,
+	args: ArgumentsOf<N>,
+): ResultOf<N> {
+	const catchError = (err: unknown) => ({
+		type: action.returnType,
+		success: false,
+		error: new ActionExecutionError(action.name, err),
+	});
+
+	const formatResult = (data: unknown) => ({
+		type: action.returnType,
+		success: true,
+		data: data,
+	});
+
+	try {
+		const output = action.execute(args);
+
+		if (output instanceof Promise)
+			return output.then(formatResult).catch(catchError) as ResultOf<N>;
+
+		return formatResult(output) as ResultOf<N>;
+	} catch (err) {
+		return catchError(err) as ResultOf<N>;
+	}
+}
+
+function parseArgs<N extends ActionName>(
 	argDef: Arguments,
 	args: Record<string, unknown>,
-	actionName: string,
-): Record<string, unknown> {
+	actionName: N,
+): ArgumentsOf<N> {
 	const out = {} as Record<string, unknown>;
 
 	const provided = (val: unknown) => val !== undefined && val !== null;

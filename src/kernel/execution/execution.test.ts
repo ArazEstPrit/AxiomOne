@@ -7,6 +7,7 @@ import {
 	kindCurrent,
 	kindStack,
 	run,
+	setKindAttribute,
 	stack,
 } from "./execution.ts";
 import {
@@ -189,54 +190,72 @@ describe("Kernel.Execution", () => {
 
 			strictEqual(child.node.parentId, parent.id);
 		});
-	});
 
-	describe(".end()", () => {
-		it("should remove the execution from the active stack", () => {
-			using handle = begin("scope", "test", {});
+		describe(".setAttribute()", () => {
+			it("should set the specified attribute", () => {
+				using handle = begin("scope", "test", { a: 1 });
 
-			strictEqual(current(), handle.node);
+				handle.setAttribute("a", 2);
+				strictEqual(handle.node.attributes.a, 2);
 
-			handle.end();
+				handle.setAttribute("b", 3);
+				strictEqual(handle.node.attributes.b, 3);
+			});
 
-			ok(!current());
+			it("should return the attribute", () => {
+				using handle = begin("scope", "test", { a: 1 });
+
+				strictEqual(handle.setAttribute("a", 2), 2);
+			});
 		});
 
-		it("should be idempotent", () => {
-			using handle = begin("scope", "test", {});
+		describe(".end()", () => {
+			it("should remove the execution from the active stack", () => {
+				using handle = begin("scope", "test", {});
 
-			handle.end();
-			handle.end();
+				strictEqual(current(), handle.node);
 
-			ok(!current());
-		});
+				handle.end();
 
-		it("should mark the handle as ended", () => {
-			using handle = begin("scope", "test", {});
+				ok(!current());
+			});
 
-			ok(!handle.ended);
+			it("should be idempotent", () => {
+				using handle = begin("scope", "test", {});
 
-			handle.end();
+				handle.end();
+				handle.end();
 
-			ok(handle.ended);
-		});
+				ok(!current());
+			});
 
-		it("should support Symbol.dispose", () => {
-			let handle;
-			{
-				using h = begin("scope", "test", {});
-				handle = h;
-			}
+			it("should mark the handle as ended", () => {
+				using handle = begin("scope", "test", {});
 
-			ok(!current());
-			ok(handle.ended);
-		});
+				ok(!handle.ended);
 
-		it("should not allow ending a non-current execution", () => {
-			using parent = begin("scope", "parent", {});
-			using _ = begin("scope", "child", {});
+				handle.end();
 
-			throws(() => parent.end());
+				ok(handle.ended);
+			});
+
+			it("should support Symbol.dispose", () => {
+				let handle;
+				{
+					using h = begin("scope", "test", {});
+					handle = h;
+				}
+
+				ok(!current());
+				ok(handle.ended);
+			});
+
+			it("should not allow ending a non-current execution", () => {
+				using parent = begin("scope", "parent", {});
+				using _ = begin("scope", "child", {});
+
+				throws(() => parent.end());
+			});
 		});
 	});
 
@@ -328,6 +347,22 @@ describe("Kernel.Execution", () => {
 			);
 
 			ok(!current());
+		});
+	});
+
+	describe(".setKindAttribute()", () => {
+		it("should set the attribute of the current execution of the kind", () => {
+			using _ = begin("scope", "test", { a: 1 });
+			using _2 = begin("test:ignore", "test", {});
+
+			setKindAttribute("scope", "a", 2);
+
+			strictEqual(kindCurrent("scope")!.attributes.a, 2);
+		});
+
+		it("should return the attribute", () => {
+			using _ = begin("scope", "test", { a: 1 });
+			strictEqual(setKindAttribute("scope", "a", 2), 2);
 		});
 	});
 

@@ -5,13 +5,23 @@ import type {
 	ScopeKind,
 	Scope,
 	ScopeAttributes,
-	onScopeAttributeChangeHandler,
-	OnScopeEndHandler,
-	OnScopeStartHandler,
 	ScopeCallback,
 } from "./types.ts";
 import { randomUUID } from "crypto";
 import { ParentScopeEndError } from "./errors.ts";
+import { log } from "#kernel/log";
+
+declare module "#kernel/log" {
+	export interface LogMap {
+		"scope:start": { scope: Scope };
+		"scope:end": { scopeId: string };
+		"scope:attribute-change": {
+			scopeId: string;
+			field: string;
+			value: unknown;
+		};
+	}
+}
 
 const storage = new AsyncLocalStorage<ScopeContext>();
 
@@ -100,7 +110,7 @@ export function run<T>(
 		fn(handle),
 	);
 
-	for (const fn of onScopeEndHandlers) fn(handle.id);
+	log(50, "scope:end", "Scope ended", { scopeId: handle.id });
 
 	return res;
 }
@@ -114,8 +124,11 @@ export function setKindAttribute<
 	if (!scope) return value;
 
 	scope.attributes[field] = value;
-	for (const fn of onScopeAttributeChangeHandlers)
-		fn(scope.id, field as string, value);
+	log(50, "scope:attribute-change", `Scope attribute set`, {
+		scopeId: scope.id,
+		field: field as string,
+		value,
+	});
 
 	return value;
 }
@@ -147,10 +160,10 @@ function createHandle<K extends ScopeKind>(scope: Scope<K>): ScopeHandle<K> {
 			stack: scopeStack().slice(0, -1),
 		});
 
-		for (const fn of onScopeEndHandlers) fn(scope.id);
+		log(50, "scope:end", "Scope ended", { scopeId: scope.id });
 	};
 
-	for (const fn of onScopeStartHandlers) fn(scope);
+	log(50, "scope:start", "Scope started", { scope });
 
 	return {
 		get id() {
@@ -166,8 +179,11 @@ function createHandle<K extends ScopeKind>(scope: Scope<K>): ScopeHandle<K> {
 		setAttribute(field, value) {
 			scope.attributes[field] = value;
 
-			for (const fn of onScopeAttributeChangeHandlers)
-				fn(scope.id, field as string, value);
+			log(50, "scope:attribute-change", `Scope attribute set`, {
+				scopeId: scope.id,
+				field: field as string,
+				value,
+			});
 
 			return value;
 		},
@@ -176,26 +192,6 @@ function createHandle<K extends ScopeKind>(scope: Scope<K>): ScopeHandle<K> {
 	};
 }
 
-const onScopeStartHandlers: OnScopeStartHandler[] = [];
-const onScopeEndHandlers: OnScopeEndHandler[] = [];
-const onScopeAttributeChangeHandlers: onScopeAttributeChangeHandler[] = [];
-
-export function onScopeStart(fn: OnScopeStartHandler) {
-	onScopeStartHandlers.push(fn);
-}
-export function onScopeEnd(fn: OnScopeEndHandler) {
-	onScopeEndHandlers.push(fn);
-}
-export function onScopeAttributeChange(fn: onScopeAttributeChangeHandler) {
-	onScopeAttributeChangeHandlers.push(fn);
-}
-
 export function __resetState() {
 	storage.disable();
-	onScopeStartHandlers.splice(0, onScopeStartHandlers.length);
-	onScopeEndHandlers.splice(0, onScopeEndHandlers.length);
-	onScopeAttributeChangeHandlers.splice(
-		0,
-		onScopeAttributeChangeHandlers.length,
-	);
 }

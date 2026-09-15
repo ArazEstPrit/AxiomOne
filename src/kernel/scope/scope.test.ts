@@ -9,9 +9,6 @@ import {
 	run,
 	setKindAttribute,
 	scopeStack,
-	onScopeAttributeChange,
-	onScopeStart,
-	onScopeEnd,
 } from "./scope.ts";
 import {
 	deepStrictEqual,
@@ -472,92 +469,6 @@ describe.only("Kernel.Execution", () => {
 
 			strictEqual(results[0]?.name, "a");
 			strictEqual(results[1]?.name, "b");
-		});
-	});
-
-	describe(".onScopeStart()", () => {
-		it("should run handler when a scope starts", () => {
-			const scopes = [] as Scope[];
-
-			onScopeStart(scope => scopes.push(scope));
-
-			let scope1;
-			run(
-				"test",
-				({ scope }) => {
-					scope1 = scope;
-				},
-				{},
-			);
-
-			using handle = begin("test", {});
-			handle.end();
-
-			deepStrictEqual(scopes, [scope1, handle.scope]);
-		});
-
-		it("should run handler right before a scope starts", () => {
-			let currentId;
-			onScopeStart(() => (currentId = currentScope()?.id));
-
-			using handle = begin("test", {});
-			handle.end();
-
-			ok(currentId !== handle.id);
-		});
-	});
-
-	describe(".onScopeEnd()", () => {
-		it("should run handler when a scope ends", () => {
-			const scopes = [] as string[];
-
-			onScopeEnd(scopeId => scopes.push(scopeId));
-
-			using handle = begin("test", {});
-
-			let scope1Id;
-			run(
-				"test",
-				({ scope }) => {
-					scope1Id = scope.id;
-				},
-				{},
-			);
-
-			handle.end();
-
-			deepStrictEqual(scopes, [scope1Id, handle.id]);
-		});
-
-		it("should run handler right after a scope ends", () => {
-			let currentId;
-			onScopeEnd(() => (currentId = currentScope()?.id));
-
-			using handle = begin("test", {});
-			handle.end();
-
-			ok(currentId !== handle.id);
-		});
-	});
-
-	describe(".onScopeAttributeChange()", () => {
-		it("should run handler when an attribute is set", () => {
-			const changes = [] as unknown[];
-
-			onScopeAttributeChange((id, field, value) => {
-				changes.push({ id, field, value });
-			});
-
-			using scope1 = begin("test:ignore", "test", {});
-			using scope2 = begin("test", {});
-
-			setKindAttribute("test:ignore", "a", 123);
-			scope2.setAttribute("b", 321);
-
-			deepStrictEqual(changes, [
-				{ id: scope1.id, field: "a", value: 123 },
-				{ id: scope2.id, field: "b", value: 321 },
-			]);
 		});
 	});
 });

@@ -26,10 +26,10 @@ import type {
 	StaticEventEmission,
 } from "./types.ts";
 import { arrMax, mapIncrement, mapPush, runWithTimeout } from "#utils";
-import { begin, kindCurrent, kindStack, run } from "../execution/execution.ts";
+import { begin, currentScopeOf, scopeStackOf, run } from "#kernel/scope";
 
-declare module "#kernel/execution" {
-	export interface ExecutionKindMap {
+declare module "#kernel/scope" {
+	export interface ScopeKindMap {
 		event: { event: EventEmission };
 		"event-listener": { listenerId: string };
 	}
@@ -253,9 +253,9 @@ export async function emit<T extends EventName>(
 ): Promise<void> {
 	updateWildcardIndex(eventName);
 
-	const eventStack = kindStack("event").map(n => n.attributes.event) || [];
+	const eventStack = scopeStackOf("event").map(n => n.attributes.event) || [];
 	const parentListenerId =
-		kindCurrent("event-listener")?.attributes.listenerId;
+		currentScopeOf("event-listener")?.attributes.listenerId;
 
 	const origin: EmissionOrigin = parentListenerId
 		? { type: "listener", listenerId: parentListenerId }

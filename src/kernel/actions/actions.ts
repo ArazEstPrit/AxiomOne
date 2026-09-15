@@ -1,4 +1,4 @@
-import { begin } from "#kernel/execution";
+import { begin } from "#kernel/scope";
 import { deepFreeze, isObject, trycatch } from "#utils";
 import {
 	ActionExecutionError,
@@ -19,8 +19,8 @@ import type {
 	ResultOf,
 } from "./types.ts";
 
-declare module "#kernel/execution" {
-	export interface ExecutionKindMap {
+declare module "#kernel/scope" {
+	export interface ScopeKindMap {
 		action: { name: ActionName; args: ArgumentsOf; result: ResultOf };
 	}
 }

@@ -27,3 +27,5 @@ interface GenericLogEntry extends BaseLogEntry {
 export type LogEntry<T extends LogId = LogId> = {
 	[K in LogId]: K extends "base" ? GenericLogEntry : TypedLogEntry<K>;
 }[T];
+
+export type LogSink = (log: LogEntry) => void;

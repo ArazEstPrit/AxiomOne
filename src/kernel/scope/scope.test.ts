@@ -25,7 +25,7 @@ declare module "#kernel/scope" {
 	}
 }
 
-describe.only("Kernel.Execution", () => {
+describe("Kernel.Scope", () => {
 	before(() => {
 		initTestGlobal();
 	});

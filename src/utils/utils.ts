@@ -77,3 +77,7 @@ export function trycatch<T, U>(
 		return catchFn(error);
 	}
 }
+
+export async function wait(ms: number): Promise<void> {
+	return new Promise(res => setTimeout(res, ms));
+}

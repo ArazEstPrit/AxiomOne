@@ -41,12 +41,11 @@ function setModuleInfo(name: string, update: Partial<ModuleInfo>) {
 }
 
 /**
- * Setup all modules in the `src/modules` directory.
+ * Set up all modules in the `src/modules` directory.
  *
  * This method discovers modules, validates manifests, loads entry
  * points, and executes `init()` functions in alphabetical order. It should only
- * be called once during application startup. If called after modules have
- * already been setup, this function will return early and not do anything.
+ * be called once during application startup.
  *
  * Steps:
  * 1. Discovery - Read `src/modules` directory for subdirectories containing manifests
@@ -54,7 +53,7 @@ function setModuleInfo(name: string, update: Partial<ModuleInfo>) {
  * 3. Loading - Import init functions from each module
  * 4. Initialization - Execute all init functions sequentially
  *
- * This function does not throw. Module setup errors will be caught and
+ * This function does not throw. Module setup errors are caught and
  * logged. A module which fails at any step will not be counted as a set up
  * module.
  *
@@ -134,7 +133,7 @@ async function discover(): Promise<Map<string, object>> {
 }
 
 /**
- * Validates the provided manifest
+ * Validates the provided manifest.
  *
  * @param dirName - Module directory name
  * @param manifest - Module manifest

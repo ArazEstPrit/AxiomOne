@@ -12,7 +12,15 @@ import type {
 	FileSystemOperation,
 	WatchUnsubscribe,
 } from "./types.ts";
-import { dirname, ext, join, normExt, segments, stem } from "./utils.ts";
+import {
+	dirname,
+	ext,
+	join,
+	normExt,
+	resolve,
+	segments,
+	stem,
+} from "./utils.ts";
 
 import {
 	FileAlreadyExistsError,
@@ -21,6 +29,8 @@ import {
 	FileSystemPermissionError,
 } from "./errors.ts";
 import { getSystemErrorName } from "node:util";
+
+export const APP_PATH = resolve(import.meta.dirname, "../../../");
 
 // For some reason, the error numbers sometimes are positive instead of negative. TODO
 // https://stackoverflow.com/questions/78457270/node-why-are-os-constants-errno-values-positive-while-util-getsystemerrorna
@@ -472,54 +482,3 @@ export async function watch(
 
 	return () => watcher.close();
 }
-
-// .stat() - should return stat, should return null if no file
-// .exists() - self explanatory
-// .isFile() - self explanatory
-// .isDir() - self explanatory
-// .mtime() - self explanatory
-// .size() - self explanatory
-
-// .readText() - read, diff encoding, throw if err
-//  ornull
-// .readBytes() - read, throw if err
-// .readJson() - parse, throw if err
-// or
-// .readLines() - read, iterator
-
-// write() - write file data, write bytes, overwrite
-//  atomic: is atomic
-//  mkdirs
-//  encoding
-// writeText && writeBytes
-// writeJson ??
-// appendText - should create file if not exist
-// updateText - should provide text to callback, should change text in file
-// updateJson - should provide json to callback, should change json in file,
-// should use fallback
-// ensure dir - should create dir, should keep files in dir if already exists
-// ensure file - should create file, should keep file contents if already exists
-// touch - should create file if no exist, should change atime and mtime
-// remove - should remove file & dir
-// emptyDir - should remove all files in dir while keeping dir
-// copy - should copy file, copy dir recursively
-//  overwrite - should
-// move - should move file, move dir recursively
-//  overwrite - should
-// walk - should generate all entries in a dir recursively in alphabetical
-// order
-//  recursive
-//  maxdepth
-//  hidden
-//  ignore
-//  type
-//  ext
-// list - should return ....
-//  listdirs
-//  listfiles
-// readDir - should return list of entries in alphabetical order
-// uniquePath - should return a unique path
-// sizeOf - should return size of file/dir
-// watch - should emit add remove change and rename events
-//  recursive
-//  ignore

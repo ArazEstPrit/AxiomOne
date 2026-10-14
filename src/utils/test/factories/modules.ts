@@ -1,6 +1,6 @@
 import { join } from "path";
 import { mkdirSync, writeFileSync } from "fs";
-import { absoluteModulePath, type ModuleManifest } from "#kernel/modules";
+import { MODULES_PATH, type ModuleManifest } from "#kernel/modules";
 
 declare global {
 	interface __test {
@@ -12,9 +12,9 @@ export function createModule(
 	name: string,
 	manifest?: (Record<string, string> & Partial<ModuleManifest>) | undefined,
 	code?: string,
-	options?: { codeFileName?: string; exactCode?: boolean }
+	options?: { codeFileName?: string; exactCode?: boolean },
 ) {
-	const modulePath = join(absoluteModulePath, name);
+	const modulePath = join(MODULES_PATH, name);
 	mkdirSync(modulePath, { recursive: true });
 	if (manifest) createManifest(name, JSON.stringify(manifest));
 
@@ -22,9 +22,11 @@ export function createModule(
 		writeFileSync(
 			join(
 				modulePath,
-				options?.codeFileName || manifest?.entry || "index.ts"
+				options?.codeFileName || manifest?.entry || "index.ts",
 			),
-			options?.exactCode ? code : `export async function init() {${code}}`
+			options?.exactCode
+				? code
+				: `export async function init() {${code}}`,
 		);
 }
 
@@ -33,7 +35,7 @@ export function createNormalModules(num: number = 1) {
 		createModule(
 			"test-module-" + i,
 			createNormalManifest(i),
-			`global.__test.modules.push('test-module-${i}');`
+			`global.__test.modules.push('test-module-${i}');`,
 		);
 }
 
@@ -47,8 +49,5 @@ export function createNormalManifest(num: number) {
 }
 
 export function createManifest(moduleName: string, manifest: string) {
-	writeFileSync(
-		join(absoluteModulePath, moduleName, "manifest.json"),
-		manifest
-	);
+	writeFileSync(join(MODULES_PATH, moduleName, "manifest.json"), manifest);
 }

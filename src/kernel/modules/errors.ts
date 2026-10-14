@@ -7,7 +7,7 @@ export class ModuleSetupError extends Error {
 		message: string,
 		module: string,
 		stage: ModuleSetupStage,
-		cause?: unknown
+		cause?: unknown,
 	) {
 		super(message, { cause });
 		this.name = "ModuleSetupError";
@@ -22,7 +22,7 @@ export class ModuleDiscoveryError extends ModuleSetupError {
 			`Failed to discover module "${module}"`,
 			module,
 			"discovery",
-			cause
+			cause,
 		);
 		this.name = "ModuleDiscoveryError";
 	}
@@ -39,7 +39,7 @@ export class ManifestMissingFieldError extends ModuleValidationError {
 	constructor(module: string, field: keyof ModuleManifest) {
 		super(
 			`Manifest for module "${module}" is missing required field "${field}"`,
-			module
+			module,
 		);
 		this.name = "ManifestMissingFieldError";
 	}
@@ -49,19 +49,9 @@ export class ManifestNameMismatchError extends ModuleValidationError {
 	constructor(dirName: string, manifestName: string) {
 		super(
 			`Manifest name "${manifestName}" does not match folder name "${dirName}"`,
-			dirName
+			dirName,
 		);
 		this.name = "ManifestNameMismatchError";
-	}
-}
-
-export class ManifestEntryNotFoundError extends ModuleValidationError {
-	constructor(module: string, entry: string) {
-		super(
-			`Manifest entry file "${entry}" not found for module "${module}"`,
-			module
-		);
-		this.name = "ManifestEntryNotFoundError";
 	}
 }
 
@@ -69,6 +59,14 @@ export class ModuleLoadError extends ModuleSetupError {
 	constructor(module: string, cause?: unknown) {
 		super(`Failed to load module "${module}"`, module, "loading", cause);
 		this.name = "ModuleLoadError";
+	}
+}
+
+export class EntryPointNotFoundError extends ModuleLoadError {
+	constructor(module: string, entry: string) {
+		super(module);
+		this.message = `Manifest entry file "${entry}" not found for module "${module}"`;
+		this.name = "ManifestEntryNotFoundError";
 	}
 }
 
@@ -86,7 +84,7 @@ export class ModuleInitializationError extends ModuleSetupError {
 			`Initialization failed for module "${module}"`,
 			module,
 			"initialization",
-			cause
+			cause,
 		);
 		this.name = "ModuleInitializationError";
 	}

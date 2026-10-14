@@ -1,14 +1,12 @@
-import { readdir, readFile } from "fs/promises";
 import type {
 	ModuleInfo,
 	ModuleInit,
 	ModuleManifest,
 	ModuleSystemDiagnostics,
 } from "./types.ts";
-import { join, resolve } from "path";
 import {
 	EntryPointMissingInitError,
-	ManifestEntryNotFoundError,
+	EntryPointNotFoundError,
 	ManifestMissingFieldError,
 	ManifestNameMismatchError,
 	ModuleDiscoveryError,
@@ -16,13 +14,9 @@ import {
 	ModuleLoadError,
 	ModuleValidationError,
 } from "./errors.ts";
-import { fileURLToPath, pathToFileURL } from "url";
-import { existsSync } from "fs";
+import { APP_PATH, dir, exists, join } from "#kernel/fs";
 
-export const absoluteModulePath = resolve(
-	fileURLToPath(new URL(".", import.meta.url)),
-	"../../modules"
-);
+export const MODULES_PATH = join(APP_PATH, "src/modules");
 
 const modules = new Map<string, ModuleInfo>();
 const initOrder = [] as string[];
@@ -94,33 +88,25 @@ export async function setup(): Promise<void> {
  * subdirectory name.
  */
 async function discover(): Promise<Map<string, object>> {
-	const directories = (
-		await readdir(absoluteModulePath, { withFileTypes: true })
-	)
-		.filter(d => d.isDirectory())
-		.map(d => d.name)
-		.sort();
-
+	const directories = await dir(MODULES_PATH).dirs();
 	const output = new Map<string, object>();
 
 	for (const dir of directories) {
 		try {
-			const manifestRaw = await readFile(
-				join(absoluteModulePath, dir, "manifest.json"),
-				{ encoding: "utf8" }
+			const manifest = Object.freeze(
+				await dir.file("manifest.json").json(),
 			);
-			const manifest = Object.freeze(JSON.parse(manifestRaw));
 
 			if (typeof manifest !== "object" || Array.isArray(manifest))
 				throw new Error("manifest JSON must be an object");
 
-			output.set(dir, manifest);
+			output.set(dir.name, manifest);
 		} catch (error) {
-			setModuleInfo(dir, {
-				name: dir,
+			setModuleInfo(dir.name, {
+				name: dir.name,
 				success: false,
 				stage: "discovery",
-				error: new ModuleDiscoveryError(dir, error),
+				error: new ModuleDiscoveryError(dir.name, error),
 			});
 		}
 	}
@@ -137,7 +123,7 @@ async function discover(): Promise<Map<string, object>> {
 }
 
 /**
- * Validates the provided manifest and checks for entry point existence.
+ * Validates the provided manifest
  *
  * @param dirName - Module directory name
  * @param manifest - Module manifest
@@ -146,7 +132,7 @@ async function discover(): Promise<Map<string, object>> {
  */
 function validate(
 	dirName: string,
-	manifest: object
+	manifest: object,
 ): manifest is ModuleManifest {
 	const { name, entry } = manifest as ModuleManifest;
 	let error: ModuleValidationError | null = null;
@@ -161,14 +147,8 @@ function validate(
 		error = new ModuleValidationError(
 			dirName,
 			entry,
-			"Entrypoint must be TypeScript or JavaScript"
+			"Entrypoint must be TypeScript or JavaScript",
 		);
-	// This is the only synchronous FS operation. The async alternatives
-	// like `access()` are more complicated to use, especially inline like
-	// this. Once the OS abstraction is done, the module system's FS
-	// operations will be replaced anyway, so for now, this will do.
-	else if (entry && !existsSync(join(absoluteModulePath, dirName, entry)))
-		error = new ManifestEntryNotFoundError(dirName, entry);
 
 	if (error) {
 		setModuleInfo(dirName, {
@@ -195,9 +175,16 @@ function validate(
  * {@link ModuleLoadError} occurred.
  */
 async function load(manifest: ModuleManifest): Promise<ModuleInit | null> {
-	const path = pathToFileURL(
-		join(absoluteModulePath, manifest.name, manifest.entry)
-	).href;
+	const path = join(MODULES_PATH, manifest.name, manifest.entry);
+
+	if (!(await exists(path))) {
+		setModuleInfo(manifest.name, {
+			success: false,
+			stage: "loading",
+			error: new EntryPointNotFoundError(manifest.name, manifest.entry),
+		});
+		return null;
+	}
 
 	let init;
 	try {
@@ -271,7 +258,7 @@ export function getManifests(): ReadonlyArray<Readonly<ModuleManifest>> {
 			.values()
 			.filter(m => m.success && m.stage === "initialization")
 			.map(m => m.manifest)
-			.toArray()
+			.toArray(),
 	);
 }
 
@@ -287,15 +274,15 @@ export function getReport(): Readonly<ModuleSystemDiagnostics> {
 			m =>
 				(m.stage === "validation" && m.success) ||
 				m.stage === "loading" ||
-				m.stage === "initialization"
+				m.stage === "initialization",
 		).length,
 		loaded: moduleInfo.filter(
 			m =>
 				(m.stage === "loading" && m.success) ||
-				m.stage === "initialization"
+				m.stage === "initialization",
 		).length,
 		initialized: moduleInfo.filter(
-			m => m.stage === "initialization" && m.success
+			m => m.stage === "initialization" && m.success,
 		).length,
 		failed: moduleInfo.filter(m => !m.success).length,
 

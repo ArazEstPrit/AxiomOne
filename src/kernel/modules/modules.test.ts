@@ -16,7 +16,7 @@ import {
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
 import {
 	__resetState,
-	absoluteModulePath,
+	MODULES_PATH,
 	getLoadOrder,
 	getModuleInfo,
 	getReport,
@@ -26,7 +26,7 @@ import {
 import { mkdirSync, rmSync } from "fs";
 import {
 	EntryPointMissingInitError,
-	ManifestEntryNotFoundError,
+	EntryPointNotFoundError,
 	ManifestMissingFieldError,
 	ManifestNameMismatchError,
 	ModuleDiscoveryError,
@@ -39,22 +39,22 @@ describe("Kernel.Modules", () => {
 	before(() => {
 		initTestGlobal();
 
-		backupDir(absoluteModulePath);
+		backupDir(MODULES_PATH);
 	});
 
 	after(() => {
-		restoreDir(absoluteModulePath);
+		restoreDir(MODULES_PATH);
 	});
 
 	beforeEach(() => {
 		__resetState();
 		__test.modules = [];
 
-		mkdirSync(absoluteModulePath);
+		mkdirSync(MODULES_PATH);
 	});
 
 	afterEach(() => {
-		rmSync(absoluteModulePath, { recursive: true });
+		rmSync(MODULES_PATH, { recursive: true });
 	});
 
 	describe(".setup()", () => {
@@ -160,10 +160,6 @@ describe("Kernel.Modules", () => {
 				name: "different-name",
 				entry: "index.ts",
 			});
-			createModule("non-existing-entry", {
-				name: "non-existing-entry",
-				entry: "index.ts",
-			});
 			createModule("wrong-field-type", undefined);
 			createManifest(
 				"wrong-field-type",
@@ -176,7 +172,6 @@ describe("Kernel.Modules", () => {
 
 			const missingField = getModuleInfo("missing-field");
 			const nameMismatch = getModuleInfo("name-mismatch");
-			const nonExistingEntry = getModuleInfo("non-existing-entry");
 			const wrongFieldType = getModuleInfo("wrong-field-type");
 
 			ok(
@@ -192,13 +187,6 @@ describe("Kernel.Modules", () => {
 			);
 
 			ok(
-				nonExistingEntry &&
-					!nonExistingEntry.success &&
-					nonExistingEntry.error instanceof
-						ManifestEntryNotFoundError,
-			);
-
-			ok(
 				wrongFieldType &&
 					!wrongFieldType.success &&
 					wrongFieldType.error instanceof ManifestMissingFieldError,
@@ -206,6 +194,11 @@ describe("Kernel.Modules", () => {
 		});
 
 		it("should fail at loading stage", async () => {
+			createModule("non-existing-entry", {
+				name: "non-existing-entry",
+				entry: "index.ts",
+			});
+
 			createModule(
 				"no-init-export",
 				{ name: "no-init-export", entry: "index.ts" },
@@ -231,9 +224,16 @@ describe("Kernel.Modules", () => {
 
 			strictEqual(getManifests().length, 0);
 
+			const nonExistingEntry = getModuleInfo("non-existing-entry");
 			const noInitExport = getModuleInfo("no-init-export");
 			const throwsOnImport = getModuleInfo("throws-on-import");
 			const initNotAFunction = getModuleInfo("init-not-a-function");
+
+			ok(
+				nonExistingEntry &&
+					!nonExistingEntry.success &&
+					nonExistingEntry.error instanceof EntryPointNotFoundError,
+			);
 
 			ok(
 				noInitExport &&

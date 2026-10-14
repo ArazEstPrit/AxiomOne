@@ -15,7 +15,7 @@ import {
 	ModuleValidationError,
 } from "./errors.ts";
 import { APP_PATH, dir, exists, join } from "#kernel/fs";
-import { begin, currentScopeOf, run } from "#kernel/scope";
+import { begin, currentScopeOf, run, setKindAttribute } from "#kernel/scope";
 
 declare module "#kernel/scope" {
 	export interface ScopeKindMap {
@@ -31,10 +31,13 @@ export const MODULES_PATH = join(APP_PATH, "src/modules");
 
 function setModuleInfo(name: string, update: Partial<ModuleInfo>) {
 	const modules = currentScopeOf("module-registration")!.attributes.modules;
-	modules[name] = {
-		...(modules[name] || {}),
-		...update,
-	} as ModuleInfo;
+	setKindAttribute("module-registration", "modules", {
+		...modules,
+		[name]: {
+			...(modules[name] || {}),
+			...update,
+		} as ModuleInfo,
+	});
 }
 
 /**

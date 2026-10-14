@@ -47,7 +47,7 @@ export type ModuleInit = () => void | Promise<void>;
 /**
  * Statistics about module setup.
  */
-export interface ModuleSystemDiagnostics {
+export interface ModuleRegistrationInfo {
 	/** Number of module directories found */
 	discovered: number;
 
@@ -63,21 +63,19 @@ export interface ModuleSystemDiagnostics {
 	/** Number of modules that failed during any stage */
 	failed: number;
 
-	/** Total time taken for the entire setup process (ms) */
-	setupTime: number;
-
 	/** List of errors that occurred during the setup process */
 	errors: ModuleSetupError[];
 
 	/** Individual module info */
-	moduleDetails: ModuleInfo[];
+	moduleInfo: Record<string, ModuleInfo>;
+
+	manifests: ModuleManifest[];
+
+	initOrder: string[];
 }
 
 export type ModuleSetupStage =
-	| "discovery"
-	| "validation"
-	| "loading"
-	| "initialization";
+	"discovery" | "validation" | "loading" | "initialization";
 
 export type ModuleInfo =
 	| DiscoveryFailedModuleInfo
@@ -147,5 +145,4 @@ export interface InitializedModuleInfo extends BaseModuleInfo {
 	stage: "initialization";
 	success: true;
 	manifest: Readonly<ModuleManifest>;
-	initTime: number;
 }

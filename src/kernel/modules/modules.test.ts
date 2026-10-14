@@ -7,22 +7,9 @@ import {
 	initTestGlobal,
 	restoreDir,
 } from "#utils";
-import {
-	deepStrictEqual,
-	ok,
-	partialDeepStrictEqual,
-	strictEqual,
-} from "assert";
+import { ok, partialDeepStrictEqual, strictEqual } from "assert";
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
-import {
-	__resetState,
-	MODULES_PATH,
-	getLoadOrder,
-	getModuleInfo,
-	getReport,
-	getManifests,
-	setup,
-} from "./modules.ts";
+import { MODULES_PATH, setup } from "./modules.ts";
 import { mkdirSync, rmSync } from "fs";
 import {
 	EntryPointMissingInitError,
@@ -47,7 +34,6 @@ describe("Kernel.Modules", () => {
 	});
 
 	beforeEach(() => {
-		__resetState();
 		__test.modules = [];
 
 		mkdirSync(MODULES_PATH);
@@ -61,16 +47,16 @@ describe("Kernel.Modules", () => {
 		it("should initialize all modules", async () => {
 			createNormalModules(50);
 
-			await setup();
+			const { manifests } = await setup();
 
-			strictEqual(getManifests().length, 50);
+			strictEqual(manifests.length, 50);
 			strictEqual(__test.modules.length, 50);
 		});
 
 		it("should handle empty module directory", async () => {
-			await setup();
+			const { manifests } = await setup();
 
-			strictEqual(getManifests().length, 0);
+			strictEqual(manifests.length, 0);
 			strictEqual(__test.modules.length, 0);
 		});
 
@@ -95,10 +81,10 @@ describe("Kernel.Modules", () => {
 				"throw 'i threw'",
 			);
 
-			await setup();
+			const { manifests } = await setup();
 
 			strictEqual(__test.modules.length, 5);
-			strictEqual(getManifests().length, 5);
+			strictEqual(manifests.length, 5);
 		});
 
 		it("should handle TypeScript and JavaScript modules", async () => {
@@ -114,10 +100,10 @@ describe("Kernel.Modules", () => {
 				"global.__test.modules.push('js-module')",
 			);
 
-			await setup();
+			const { manifests } = await setup();
 
 			strictEqual(__test.modules.length, 2);
-			strictEqual(getManifests().length, 2);
+			strictEqual(manifests.length, 2);
 		});
 
 		it("should fail at discovery stage", async () => {
@@ -127,13 +113,13 @@ describe("Kernel.Modules", () => {
 			createModule("json-not-object", undefined);
 			createManifest("json-not-object", "[123]");
 
-			await setup();
+			const { manifests, moduleInfo } = await setup();
 
-			strictEqual(getManifests().length, 0);
+			strictEqual(manifests.length, 0);
 
-			const noManifest = getModuleInfo("no-manifest");
-			const invalidJson = getModuleInfo("invalid-json");
-			const jsonNotObject = getModuleInfo("json-not-object");
+			const noManifest = moduleInfo["no-manifest"];
+			const invalidJson = moduleInfo["invalid-json"];
+			const jsonNotObject = moduleInfo["json-not-object"];
 
 			ok(
 				noManifest &&
@@ -166,13 +152,13 @@ describe("Kernel.Modules", () => {
 				'{"name": 123, "entry": ["bla bla"]}',
 			);
 
-			await setup();
+			const { manifests, moduleInfo } = await setup();
 
-			strictEqual(getManifests().length, 0);
+			strictEqual(manifests.length, 0);
 
-			const missingField = getModuleInfo("missing-field");
-			const nameMismatch = getModuleInfo("name-mismatch");
-			const wrongFieldType = getModuleInfo("wrong-field-type");
+			const missingField = moduleInfo["missing-field"];
+			const nameMismatch = moduleInfo["name-mismatch"];
+			const wrongFieldType = moduleInfo["wrong-field-type"];
 
 			ok(
 				missingField &&
@@ -220,14 +206,14 @@ describe("Kernel.Modules", () => {
 				{ exactCode: true },
 			);
 
-			await setup();
+			const { manifests, moduleInfo } = await setup();
 
-			strictEqual(getManifests().length, 0);
+			strictEqual(manifests.length, 0);
 
-			const nonExistingEntry = getModuleInfo("non-existing-entry");
-			const noInitExport = getModuleInfo("no-init-export");
-			const throwsOnImport = getModuleInfo("throws-on-import");
-			const initNotAFunction = getModuleInfo("init-not-a-function");
+			const nonExistingEntry = moduleInfo["non-existing-entry"];
+			const noInitExport = moduleInfo["no-init-export"];
+			const throwsOnImport = moduleInfo["throws-on-import"];
+			const initNotAFunction = moduleInfo["init-not-a-function"];
 
 			ok(
 				nonExistingEntry &&
@@ -262,11 +248,11 @@ describe("Kernel.Modules", () => {
 				"throw new Error();",
 			);
 
-			await setup();
+			const { manifests, moduleInfo } = await setup();
 
-			strictEqual(getManifests().length, 0);
+			strictEqual(manifests.length, 0);
 
-			const initThrows = getModuleInfo("init-throws");
+			const initThrows = moduleInfo["init-throws"];
 
 			ok(
 				initThrows &&
@@ -275,165 +261,77 @@ describe("Kernel.Modules", () => {
 			);
 		});
 
-		it("should handle repeated setup calls", async () => {
-			createNormalModules(3);
+		describe("report", () => {
+			it("should return correct report for all-successful modules", async () => {
+				createNormalModules(10);
 
-			await setup();
-			const firstCall = getManifests().length;
+				const report = await setup();
 
-			await setup();
-			const secondCall = getManifests().length;
+				strictEqual(report.discovered, 10);
+				strictEqual(report.validated, 10);
+				strictEqual(report.loaded, 10);
+				strictEqual(report.initialized, 10);
+				strictEqual(report.failed, 0);
+				strictEqual(report.errors.length, 0);
 
-			strictEqual(firstCall, 3);
-			strictEqual(secondCall, 3);
-			strictEqual(__test.modules.length, 3);
-		});
-	});
-	describe(".getReport()", () => {
-		it("should generate correct report for all-successful modules", async () => {
-			createNormalModules(10);
-
-			await setup();
-
-			const report = getReport();
-
-			strictEqual(report.discovered, 10);
-			strictEqual(report.validated, 10);
-			strictEqual(report.loaded, 10);
-			strictEqual(report.initialized, 10);
-			strictEqual(report.failed, 0);
-			strictEqual(report.errors.length, 0);
-			// Use partial because we can't guess init time in advance
-
-			for (let i = 0; i < report.moduleDetails.length; i++) {
-				partialDeepStrictEqual(report.moduleDetails[i], {
-					name: "test-module-" + i,
-					manifest: createNormalManifest(i),
-					success: true,
-					stage: "initialization",
-				});
-			}
-		});
-
-		it("should generate correct report for a mix of successful and unsuccessful modules", async () => {
-			createNormalModules(10);
-
-			// Fails at discovery
-			createModule("no-manifest", undefined);
-
-			// Fails at validation
-			createModule("missing-field", { name: "missing-field" });
-
-			// Fails at loading
-			createModule(
-				"no-init-export",
-				{ name: "no-init-export", entry: "index.ts" },
-				"export function notInit() {}",
-				{ exactCode: true },
-			);
-
-			// Fails at init
-			createModule(
-				"init-throws",
-				{ name: "init-throws", entry: "index.ts" },
-				"throw new Error();",
-			);
-
-			await setup();
-
-			const report = getReport();
-
-			strictEqual(report.discovered, 14);
-			strictEqual(report.validated, 12);
-			strictEqual(report.loaded, 11);
-			strictEqual(report.initialized, 10);
-			strictEqual(report.failed, 4);
-			strictEqual(report.errors.length, 4);
-
-			const errors = report.errors;
-			ok(
-				errors.find(err => err instanceof ModuleDiscoveryError) &&
-					errors.find(err => err instanceof ModuleValidationError) &&
-					errors.find(err => err instanceof ModuleLoadError) &&
-					errors.find(
-						err => err instanceof ModuleInitializationError,
-					),
-			);
-		});
-
-		it("should give correct setup time", async () => {
-			createNormalModules(10);
-
-			const start = Date.now();
-			await setup();
-			const duration = Date.now() - start;
-
-			const report = getReport();
-
-			strictEqual(duration, report.setupTime);
-		});
-
-		it("should give correct module init time", async () => {
-			createModule(
-				"long-init",
-				{
-					name: "long-init",
-					entry: "index.ts",
-				},
-				"await new Promise(resolve => setTimeout(resolve, 3000));" +
-					"global.__test.modules.push('long-init');",
-			);
-
-			await setup();
-
-			const longInit = getModuleInfo("long-init");
-
-			ok(
-				longInit &&
-					longInit.success &&
-					longInit.stage === "initialization",
-			);
-
-			ok(longInit.initTime > 2900);
-
-			strictEqual(getManifests().length, 1);
-			strictEqual(__test.modules.length, 1);
-		});
-	});
-	describe(".getLoadOrder()", () => {
-		it("should list modules in alphabetical order", async () => {
-			createNormalModules(10);
-
-			await setup();
-
-			deepStrictEqual(getLoadOrder(), __test.modules);
-		});
-		it("should list successful modules in alphabetical order", async () => {
-			createNormalModules(10);
-
-			// Invalid modules that are set up in between the normal modules
-			createModule("test-module-1.5", {
-				name: "different-name",
-			});
-			createModule(
-				"test-module-3.5",
-				{
-					name: "test-module-3.5",
-					entry: "index.ts",
-				},
-				"throw new Error()",
-			);
-			createModule("test-module-5.5", {
-				name: "test-module-5.5",
-			});
-			createModule("test-module-7.5", {
-				name: "test-module-7.5",
-				entry: "index.ts",
+				// Use partial because we can't guess init time in advance
+				for (const name in report.moduleInfo) {
+					partialDeepStrictEqual(report.moduleInfo[name], {
+						name,
+						manifest: createNormalManifest(
+							parseInt(name.split("-").at(-1)!),
+						),
+						success: true,
+						stage: "initialization",
+					});
+				}
 			});
 
-			await setup();
+			it("should return correct report for a mix of successful and unsuccessful modules", async () => {
+				createNormalModules(10);
 
-			deepStrictEqual(getLoadOrder(), __test.modules);
+				// Fails at discovery
+				createModule("no-manifest", undefined);
+
+				// Fails at validation
+				createModule("missing-field", { name: "missing-field" });
+
+				// Fails at loading
+				createModule(
+					"no-init-export",
+					{ name: "no-init-export", entry: "index.ts" },
+					"export function notInit() {}",
+					{ exactCode: true },
+				);
+
+				// Fails at init
+				createModule(
+					"init-throws",
+					{ name: "init-throws", entry: "index.ts" },
+					"throw new Error();",
+				);
+
+				const report = await setup();
+
+				strictEqual(report.discovered, 14);
+				strictEqual(report.validated, 12);
+				strictEqual(report.loaded, 11);
+				strictEqual(report.initialized, 10);
+				strictEqual(report.failed, 4);
+				strictEqual(report.errors.length, 4);
+
+				const errors = report.errors;
+				ok(
+					errors.find(err => err instanceof ModuleDiscoveryError) &&
+						errors.find(
+							err => err instanceof ModuleValidationError,
+						) &&
+						errors.find(err => err instanceof ModuleLoadError) &&
+						errors.find(
+							err => err instanceof ModuleInitializationError,
+						),
+				);
+			});
 		});
 	});
 });

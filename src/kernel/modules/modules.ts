@@ -2,7 +2,7 @@ import type {
 	ModuleInfo,
 	ModuleInit,
 	ModuleManifest,
-	ModuleSystemDiagnostics,
+	ModuleRegistrationInfo,
 } from "./types.ts";
 import {
 	EntryPointMissingInitError,
@@ -15,20 +15,26 @@ import {
 	ModuleValidationError,
 } from "./errors.ts";
 import { APP_PATH, dir, exists, join } from "#kernel/fs";
+import { begin, currentScopeOf, run } from "#kernel/scope";
+
+declare module "#kernel/scope" {
+	export interface ScopeKindMap {
+		"module-registration": {
+			modules: Record<string, ModuleInfo>;
+			initOrder: string[];
+		};
+		module: { name: string };
+	}
+}
 
 export const MODULES_PATH = join(APP_PATH, "src/modules");
 
-const modules = new Map<string, ModuleInfo>();
-const initOrder = [] as string[];
-let setupTime = 0;
-let isSetupComplete = false;
-let isSetupInProgress = false;
-
 function setModuleInfo(name: string, update: Partial<ModuleInfo>) {
-	modules.set(name, {
-		...(modules.get(name) || {}),
+	const modules = currentScopeOf("module-registration")!.attributes.modules;
+	modules[name] = {
+		...(modules[name] || {}),
 		...update,
-	} as ModuleInfo);
+	} as ModuleInfo;
 }
 
 /**
@@ -47,14 +53,17 @@ function setModuleInfo(name: string, update: Partial<ModuleInfo>) {
  *
  * This function does not throw. Module setup errors will be caught and
  * logged. A module which fails at any step will not be counted as a set up
- * module. Use {@link getReport} to access detailed module information.
+ * module.
+ *
+ * @returns module registration info
  */
-export async function setup(): Promise<void> {
-	if (isSetupComplete || isSetupInProgress) return;
+export async function setup(): Promise<ModuleRegistrationInfo> {
+	if (currentScopeOf("module-registration")) return null as never;
 
-	isSetupInProgress = true;
-
-	const startDate = Date.now();
+	using scope = begin("module-registration", "Module Registration", {
+		modules: {},
+		initOrder: [],
+	});
 
 	const moduleManifests = new Map<string, ModuleManifest>();
 
@@ -74,10 +83,9 @@ export async function setup(): Promise<void> {
 		await initialize(name, init);
 	}
 
-	setupTime = Date.now() - startDate;
-
-	isSetupInProgress = false;
-	isSetupComplete = true;
+	const r = report();
+	scope.end();
+	return r;
 }
 
 /**
@@ -223,17 +231,13 @@ async function load(manifest: ModuleManifest): Promise<ModuleInit | null> {
  */
 async function initialize(name: string, init: ModuleInit): Promise<void> {
 	try {
-		const startDate = Date.now();
+		await run("module", `Module "${name}"`, init, { name });
 
-		await init();
-		const initTime = Date.now() - startDate;
-
-		initOrder.push(name);
+		currentScopeOf("module-registration")!.attributes.initOrder.push(name);
 
 		setModuleInfo(name, {
 			success: true,
 			stage: "initialization",
-			initTime,
 		});
 	} catch (error) {
 		setModuleInfo(name, {
@@ -244,86 +248,35 @@ async function initialize(name: string, init: ModuleInit): Promise<void> {
 	}
 }
 
-/**
- * Get read-only copies of all successfully loaded module manifests.
- *
- * Returns an array of frozen manifest objects. Only modules that completed
- * initialization successfully are included in the results.
- *
- * @returns Array of read-only module manifests
- */
-export function getManifests(): ReadonlyArray<Readonly<ModuleManifest>> {
-	return Object.freeze(
-		modules
-			.values()
-			.filter(m => m.success && m.stage === "initialization")
-			.map(m => m.manifest)
-			.toArray(),
-	);
-}
-
-/**
- * Get report about the module setup process
- */
-export function getReport(): Readonly<ModuleSystemDiagnostics> {
-	const moduleInfo = modules.values().toArray();
+function report(): Readonly<ModuleRegistrationInfo> {
+	const { modules, initOrder } = currentScopeOf(
+		"module-registration",
+	)!.attributes;
+	const moduleDetails = Object.values(modules);
 
 	return {
-		discovered: moduleInfo.length,
-		validated: moduleInfo.filter(
+		discovered: moduleDetails.length,
+		validated: moduleDetails.filter(
 			m =>
 				(m.stage === "validation" && m.success) ||
 				m.stage === "loading" ||
 				m.stage === "initialization",
 		).length,
-		loaded: moduleInfo.filter(
+		loaded: moduleDetails.filter(
 			m =>
 				(m.stage === "loading" && m.success) ||
 				m.stage === "initialization",
 		).length,
-		initialized: moduleInfo.filter(
+		initialized: moduleDetails.filter(
 			m => m.stage === "initialization" && m.success,
 		).length,
-		failed: moduleInfo.filter(m => !m.success).length,
+		failed: moduleDetails.filter(m => !m.success).length,
 
-		setupTime,
-		moduleDetails: modules.values().toArray(),
-		errors: moduleInfo.filter(m => !m.success).map(m => m.error),
+		manifests: moduleDetails
+			.filter(m => m.success && m.stage === "initialization")
+			.map(m => m.manifest),
+		moduleInfo: modules,
+		initOrder,
+		errors: moduleDetails.filter(m => !m.success).map(m => m.error),
 	};
-}
-
-/**
- * Get load order of modules
- */
-export function getLoadOrder(): ReadonlyArray<string> {
-	return Object.freeze([...initOrder]);
-}
-
-/**
- * Check if a specific module is set up successfully
- */
-export function isModuleSetUp(moduleName: string): boolean {
-	return modules.get(moduleName)?.success || false;
-}
-
-/**
- * Get information about a specific module
- */
-export function getModuleInfo(moduleName: string): ModuleInfo | undefined {
-	return modules.get(moduleName);
-}
-
-/**
- * Reset module system state. Should only be used in a testing environment.
- *
- * @throws if not run in a testing environment
- */
-export function __resetState(): void {
-	if (!__test?.active) throw new Error("Not in a testing environment!");
-
-	modules.clear();
-	initOrder.length = 0;
-	setupTime = 0;
-	isSetupComplete = false;
-	isSetupInProgress = false;
 }
